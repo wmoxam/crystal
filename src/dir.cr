@@ -17,6 +17,16 @@ lib LibC
       type : UInt8
       name : UInt8[256]
     end
+  elsif openbsd
+    struct DirEntry
+       d_ino : UInt64
+       d_off : Int64
+       reclen : UInt16
+       type : UInt8
+       namelen : UInt8
+       d_padding : UInt8
+       name : UInt8[256]
+     end
   end
 
   fun getcwd(buffer : UInt8*, size : Int32) : UInt8*
@@ -27,7 +37,7 @@ lib LibC
   fun mkdir(path : UInt8*, mode : LibC::ModeT) : Int32
   fun rmdir(path : UInt8*) : Int32
 
-  ifdef darwin
+  ifdef darwin || openbsd
     fun readdir(dir : Dir*) : DirEntry*
   elsif linux
     fun readdir = readdir64(dir : Dir*) : DirEntry*

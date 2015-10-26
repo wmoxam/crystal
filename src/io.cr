@@ -26,6 +26,15 @@ lib LibC
     O_TRUNC    = 0x0400
     O_NONBLOCK = 0x0004
     O_CLOEXEC  = 0x1000000
+  elsif openbsd
+    O_RDONLY   = 0x0000
+    O_WRONLY   = 0x0001
+    O_RDWR     = 0x0002
+    O_APPEND   = 0x0008
+    O_CREAT    = 0x0200
+    O_TRUNC    = 0x0400
+    O_NONBLOCK = 0x0004
+    O_CLOEXEC  = 0x10000
   end
 
   S_IRWXU    = 0o000700         # RWX mask for owner
@@ -820,4 +829,3 @@ module IO
 end
 
 require "./io/*"
-

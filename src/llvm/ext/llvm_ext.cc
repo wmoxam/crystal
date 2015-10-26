@@ -13,6 +13,24 @@ using namespace llvm;
   #define HAVE_LLVM_35 1
 #endif
 
+#if defined(__OpenBSD__)
+const // It is a const object...
+class nullptr_t
+{
+  public:
+    template<class T>
+    inline operator T*() const // convertible to any type of null non-member pointer...
+    { return 0; }
+
+    template<class C, class T>
+    inline operator T C::*() const   // or any type of null member pointer...
+    { return 0; }
+
+  private:
+    void operator&() const;  // Can't take address of nullptr
+
+} nullptr = {};
+#endif
 
 typedef struct LLVMOpaqueDIBuilder *LLVMDIBuilderRef;
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(DIBuilder, LLVMDIBuilderRef)
@@ -82,10 +100,14 @@ LLVMMetadataRef LLVMDIBuilderCreateLexicalBlock(LLVMDIBuilderRef Dref,
                                                 unsigned Column) {
   DIBuilder *D = unwrap(Dref);
   DILexicalBlock LB = D->createLexicalBlock(
-#if HAVE_LLVM_35
-      unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column, 0);
+#ifdef __OpenBSD__
+  #if HAVE_LLVM_35
+        unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column, 0);
+  #else
+        unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column);
+  #endif
 #else
-      unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column);
+    unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column);
 #endif
   return wrap(LB);
 }

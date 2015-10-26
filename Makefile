@@ -9,6 +9,9 @@ FLAGS := $(if $(release),--release )$(if $(stats),--stats )$(if $(threads),--thr
 EXPORTS := $(if $(release),,CRYSTAL_CONFIG_PATH=`pwd`/src)
 SHELL = /bin/bash
 LLVM_CONFIG := $(shell command -v llvm-config-3.6 llvm-config-3.5 llvm-config | head -n 1)
+ifeq ($(strip $(LLVM_CONFIG)),)
+	LLVM_CONFIG = llvm-config
+endif
 LLVM_EXT_DIR = src/llvm/ext
 LLVM_EXT_OBJ = $(LLVM_EXT_DIR)/llvm_ext.o
 
