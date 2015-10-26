@@ -62,6 +62,24 @@ lib LibC
         __unused5 : UInt64
       end
     end
+  elsif openbsd
+    struct Stat
+      st_dev : Int32
+      st_ino : Int32
+      st_mode : LibC::ModeT
+      st_nlink : UInt16
+      st_uid : UInt32
+      st_gid : UInt32
+      st_rdev : Int32
+      st_atimespec : LibC::TimeSpec
+      st_mtimespec : LibC::TimeSpec
+      st_ctimespec : LibC::TimeSpec
+      st_size : Int64
+      st_blocks : Int64
+      st_blksize : Int32
+      st_flags : UInt32
+      st_gen : UInt32
+    end
   end
 
   S_ISVTX  = 0o001000

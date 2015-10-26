@@ -14,11 +14,11 @@ lib LibDL
   fun dlsym(handle : Void*, symbol : LibC::Char*) : Void*
   fun dlopen(path : LibC::Char*, mode : LibC::Int) : Void*
 
-  ifdef darwin
-    RTLD_NEXT      = Pointer(Void).new(-1)
-    RTLD_DEFAULT   = Pointer(Void).new(-2)
-    RTLD_SELF      = Pointer(Void).new(-3)
-    RTLD_MAIN_ONLY = Pointer(Void).new(-5)
+  ifdef darwin || openbsd
+    RTLD_NEXT       = Pointer(Void).new(-1)
+    RTLD_DEFAULT    = Pointer(Void).new(-2)
+    RTLD_SELF       = Pointer(Void).new(-3)
+    RTLD_MAIN_ONLY  = Pointer(Void).new(-5)
   else
     RTLD_NEXT    = Pointer(Void).new(-1)
     RTLD_DEFAULT = Pointer(Void).new(0)
