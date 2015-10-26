@@ -30,7 +30,7 @@ end
 #
 # You can use a backslash followed by at most three digits to denote a code point written in octal:
 #
-# ```text
+# ```
 # "\101" # == "A"
 # "\123" # == "S"
 # "\12"  # == "\n"
@@ -39,19 +39,19 @@ end
 #
 # You can use a backslash followed by an *u* and four hexadecimal characters to denote a unicode codepoint written:
 #
-# ```text
+# ```
 # "\u0041" # == "A"
 # ```
 #
 # Or you can use curly braces and specify up to six hexadecimal numbers (0 to 10FFFF):
 #
-# ```text
+# ```
 # "\u{41}" # == "A"
 # ```
 #
 # A string can span multiple lines:
 #
-# ```text
+# ```
 # "hello
 #       world" # same as "hello      \nworld"
 # ```
@@ -60,7 +60,7 @@ end
 # end up in the resulting string. To avoid this, you can split a string into multiple lines
 # by joining multiple literals with a backslash:
 #
-# ```text
+# ```
 # "hello " \
 # "world, " \
 # "no newlines" # same as "hello world, no newlines"
@@ -68,7 +68,7 @@ end
 #
 # Alterantively, a backlash followed by a newline can be inserted inside the string literal:
 #
-# ```text
+# ```
 # "hello \
 #      world, \
 #      no newlines" # same as "hello world, no newlines"
@@ -76,11 +76,11 @@ end
 #
 # In this case, leading whitespace is not included in the resulting string.
 #
-# If you need to write a string that has many double quotes, parenthesis, or similar
+# If you need to write a string that has many double quotes, parentheses, or similar
 # characters, you can use alternative literals:
 #
-# ```text
-# # Supports double quotes and nested parenthesis
+# ```
+# # Supports double quotes and nested parentheses
 # %(hello ("world")) # same as "hello (\"world\")"
 #
 # # Supports double quotes and nested brackets
@@ -113,7 +113,7 @@ class String
 
   include Comparable(self)
 
-  # Creates a String form the given slice. Bytes will be copied from the slice.
+  # Creates a String from the given *slice*. Bytes will be copied from the slice.
   #
   # This method is always safe to call, and the resulting string will have
   # the contents and size of the slice.
@@ -579,7 +579,7 @@ class String
     LibC.atof cstr
   end
 
-  # Returns the `Char` at the give index, or raises `IndexError` if out of bounds.
+  # Returns the `Char` at the given *index*, or raises `IndexError` if out of bounds.
   #
   # Negative indices can be used to start counting from the end of the string.
   #

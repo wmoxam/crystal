@@ -61,6 +61,7 @@ module Crystal
       @assign_infos = [] of AlignInfo
       @doc_comments = [] of CommentInfo
       @current_doc_comment = nil
+      @hash_in_same_line = Set(typeof(object_id)).new
     end
 
     def visit(node : Expressions)
@@ -75,7 +76,7 @@ module Crystal
           write_indent(@indent + 2, node.expressions.first)
           skip_space_write_line
           skip_space_or_newline
-          write_indent(@indent)
+          write_indent
           write_token :")"
           return false
         end
@@ -100,24 +101,22 @@ module Crystal
       has_paren = false
       has_begin = false
 
-      unless starts_with_expressions?(node)
-        if @token.type == :"("
-          write "("
-          next_needs_indent = false
-          next_token
-          has_paren = true
-        elsif @token.keyword?(:begin)
-          write "begin"
-          write_line
+      if node.keyword == :"(" && @token.type == :"("
+        write "("
+        next_needs_indent = false
+        next_token
+        has_paren = true
+      elsif node.keyword == :begin && @token.keyword?(:begin)
+        write "begin"
+        @indent += 2
+        write_line
+        next_token_skip_space_or_newline
+        if @token.type == :";"
           next_token_skip_space_or_newline
-          if @token.type == :";"
-            next_token_skip_space_or_newline
-          end
-          has_begin = true
-          @indent += 2
-          base_indent = @indent
-          next_needs_indent = true
         end
+        has_begin = true
+        base_indent = @indent
+        next_needs_indent = true
       end
 
       last_aligned_assign = nil
@@ -137,9 +136,9 @@ module Crystal
         else
           next_exp = node.expressions[i + 1]
           needs_two_lines = !last?(i, node.expressions) && !exp.is_a?(Attribute) &&
-                              (!(exp.is_a?(IfDef) && next_exp.is_a?(LibDef))) &&
-                              (!(exp.is_a?(Def) && exp.abstract && next_exp.is_a?(Def) && next_exp.abstract)) &&
-                              (needs_two_lines?(exp) || needs_two_lines?(next_exp))
+            (!(exp.is_a?(IfDef) && next_exp.is_a?(LibDef))) &&
+            (!(exp.is_a?(Def) && exp.abstract && next_exp.is_a?(Def) && next_exp.abstract)) &&
+            (needs_two_lines?(exp) || needs_two_lines?(next_exp))
         end
 
         @assign_length = max_length
@@ -181,7 +180,7 @@ module Crystal
         else
           if needs_two_lines
             skip_space_write_line
-            found_comment = skip_space_or_newline last: true
+            found_comment = skip_space_or_newline last: true, at_least_one: true
             write_line unless found_comment
           else
             consume_newlines
@@ -201,7 +200,7 @@ module Crystal
         check_end
         next_token
         write_line
-        write_indent(@indent)
+        write_indent
         write "end"
       end
 
@@ -212,8 +211,6 @@ module Crystal
       case exp
       when Assign
         exp.target.is_a?(Path)
-        # -> uncomment this (comment the above line) to align all assignments
-        # true
       when Arg
         true
       else
@@ -229,15 +226,6 @@ module Crystal
         exp.name.size
       when Path
         exp.names.first.size
-        # -> uncomment this to align all assignments
-        # when Var
-        #   exp.name.size
-        # when InstanceVar
-        #   exp.name.size
-        # when ClassVar
-        #   exp.name.size
-        # when Global
-        #   exp.name.size
       else
         0
       end
@@ -251,9 +239,9 @@ module Crystal
         exp_location = exp.location
         break unless exp_location
 
-        last_end = last.end_location
-        break unless last_end
-        break unless last_end.line_number + 1 == exp_location.line_number
+        last_location = last.location
+        break unless last_location
+        break unless last_location.line_number + 1 == exp_location.line_number
 
         last = exp
         exp_length = assign_length(exp)
@@ -263,20 +251,6 @@ module Crystal
       end
 
       {last, max_length}
-    end
-
-    def starts_with_expressions?(node)
-      case node
-      when Expressions
-        first = node.expressions.first?
-        first && starts_with_expressions?(first)
-      when Call
-        node.obj.is_a?(Expressions) || starts_with_expressions?(node.obj)
-      when ExceptionHandler
-        !node.implicit && !node.suffix
-      else
-        false
-      end
     end
 
     def needs_two_lines?(node)
@@ -461,38 +435,38 @@ module Crystal
     end
 
     def space_slash_newline?
-      pos = @lexer.reader.pos
+      pos = @lexer.current_pos
       while true
         char = @lexer.current_char
         case char
         when ' ', '\t'
           @lexer.next_char
         when '\\'
-          @lexer.reader.pos = pos
+          @lexer.current_pos = pos
           return true
         else
           break
         end
       end
-      @lexer.reader.pos = pos
+      @lexer.current_pos = pos
       false
     end
 
     def space_newline?
-      pos = @lexer.reader.pos
+      pos = @lexer.current_pos
       while true
         char = @lexer.current_char
         case char
         when ' ', '\t'
           @lexer.next_char
         when '\n'
-          @lexer.reader.pos = pos
+          @lexer.current_pos = pos
           return true
         else
           break
         end
       end
-      @lexer.reader.pos = pos
+      @lexer.current_pos = pos
       false
     end
 
@@ -516,7 +490,7 @@ module Crystal
           if has_space_newline
             write_line
             if count == node.elements.size
-              write_indent(@indent)
+              write_indent
             else
               write_indent(@indent + 2)
             end
@@ -558,8 +532,6 @@ module Crystal
     def format_literal_elements(elements, prefix, suffix)
       slash_is_regex!
       write_token prefix
-      prefix_indent = @indent
-      base_indent = @column
       has_newlines = false
       wrote_newline = false
       write_space_at_end = false
@@ -575,9 +547,7 @@ module Crystal
           return false
         end
 
-        prefix_indent = @indent
-        base_indent = @indent + 2
-        indent(base_indent) { consume_newlines }
+        indent(@indent + 2) { consume_newlines }
         skip_space_or_newline
         wrote_newline = true
         next_needs_indent = true
@@ -598,7 +568,7 @@ module Crystal
         end
 
         if next_needs_indent
-          write_indent(base_indent, element)
+          write_indent(@indent + 2, element)
         else
           accept element
         end
@@ -617,7 +587,7 @@ module Crystal
               write ","
               found_comment = true
             end
-            indent(base_indent) { consume_newlines }
+            indent(@indent + 2) { consume_newlines }
             skip_space_or_newline
             next_needs_indent = true
             has_newlines = true
@@ -630,7 +600,7 @@ module Crystal
         end
       end
 
-      finish_list suffix, prefix_indent, has_newlines, found_comment, found_first_newline, write_space_at_end
+      finish_list suffix, has_newlines, found_comment, found_first_newline, write_space_at_end
     end
 
     def visit(node : HashLiteral)
@@ -649,6 +619,10 @@ module Crystal
         format_hash_entry nil, node_of
       end
 
+      if @hash_in_same_line.includes? node.object_id
+        @hash_infos.reject! { |info| info.id == node.object_id }
+      end
+
       false
     end
 
@@ -659,6 +633,7 @@ module Crystal
     def format_hash_entry(hash, entry)
       start_line = @line
       start_column = @column
+      found_in_same_line = false
 
       if entry.key.is_a?(SymbolLiteral) && (@token.type == :IDENT || @token.type == :CONST)
         write @token
@@ -666,7 +641,7 @@ module Crystal
         slash_is_regex!
         write_token :":", " "
         middle_column = @column
-        check_hash_info hash, entry.key, start_line, start_column, middle_column
+        found_in_same_line ||= check_hash_info hash, entry.key, start_line, start_column, middle_column
       else
         accept entry.key
         skip_space_or_newline
@@ -676,21 +651,25 @@ module Crystal
           slash_is_regex!
           next_token
           middle_column = @column
-          check_hash_info hash, entry.key, start_line, start_column, middle_column
+          found_in_same_line ||= check_hash_info hash, entry.key, start_line, start_column, middle_column
         else
           slash_is_regex!
           write_token " ", :"=>", " "
-          check_hash_info hash, entry.key, start_line, start_column, middle_column
+          found_in_same_line ||= check_hash_info hash, entry.key, start_line, start_column, middle_column
         end
       end
       skip_space_or_newline
       accept entry.value
+
+      if found_in_same_line
+        @hash_in_same_line << hash.object_id
+      end
     end
 
-    def finish_list(suffix, prefix_indent, has_newlines, found_comment, found_first_newline, write_space_at_end)
+    def finish_list(suffix, has_newlines, found_comment, found_first_newline, write_space_at_end)
       if @token.type == suffix && !found_first_newline
         if @wrote_newline
-          write_indent(prefix_indent)
+          write_indent
         else
           write " " if write_space_at_end
         end
@@ -703,7 +682,7 @@ module Crystal
             write ","
             write_line
           end
-          write_indent(prefix_indent)
+          write_indent
         elsif write_space_at_end
           write " "
         end
@@ -715,13 +694,17 @@ module Crystal
 
     def check_hash_info(hash, key, start_line, start_column, middle_column)
       end_column = @column
+      found_in_same_line = false
       if @line == start_line
         last_info = @hash_infos.last?
-        unless last_info && last_info.line == @line
+        if last_info && last_info.line == @line
+          found_in_same_line = true
+        else
           number = key.is_a?(NumberLiteral)
           @hash_infos << AlignInfo.new(hash.object_id, @line, start_column, middle_column, end_column, number)
         end
       end
+      found_in_same_line
     end
 
     def visit(node : RangeLiteral)
@@ -943,7 +926,7 @@ module Crystal
       node_else = node.else
 
       if @token.keyword?(:else)
-        write_indent(@indent)
+        write_indent
         write "else"
         next_token
         indent(@indent + 2) { skip_space }
@@ -961,7 +944,7 @@ module Crystal
     end
 
     def format_elsif(node_else)
-      write_indent(@indent)
+      write_indent
       write "elsif "
       next_token_skip_space_or_newline
       format_if_at_cond node_else, check_end: false
@@ -1683,7 +1666,6 @@ module Crystal
         return false
       end
 
-      base_column = @indent
       obj = node.obj
 
       # Special cases
@@ -1722,6 +1704,13 @@ module Crystal
         end
 
         accept obj
+
+        if @token.type == :SPACE
+          needs_space = true
+        else
+          needs_space = node.name != "*" && node.name != "/" && node.name != "**"
+        end
+
         skip_space
 
         @dot_column = nil unless obj.is_a?(Call)
@@ -1729,7 +1718,7 @@ module Crystal
         # It's something like `foo.bar\n
         #                         .baz`
         if @token.type == :NEWLINE
-          newline_indent = @dot_column || @column
+          newline_indent = @dot_column || @indent + 2
           indent(newline_indent) { consume_newlines }
           write_indent(newline_indent)
         end
@@ -1737,7 +1726,6 @@ module Crystal
         if @token.type != :"."
           # It's an operator
           if @token.type == :"["
-            bracket_column = @column
             write "["
             next_token_skip_space
 
@@ -1747,16 +1735,12 @@ module Crystal
               last_arg = args.pop
             end
 
-            has_newlines, has_first_newline, found_comment, _ = format_args args, true
+            has_newlines, found_comment, _ = format_args args, true
             if @token.type == :"," || @token.type == :NEWLINE
               if has_newlines
                 write ","
                 write_line
-                if has_first_newline
-                  write_indent(base_column)
-                else
-                  write_indent(bracket_column)
-                end
+                write_indent
               end
               next_token_skip_space_or_newline
             else
@@ -1779,15 +1763,15 @@ module Crystal
 
               if @token.type != :"="
                 # This is the case of `x[y] op= value`
-                write_token " ", @token.type, " "
-                next_token_skip_space_or_newline
-                accept (last_arg as Call).args.last
+                write_token " ", @token.type
+                skip_space
+                accept_assign_value_after_equals (last_arg as Call).args.last
                 return false
               end
 
-              write " = "
-              next_token_skip_space_or_newline
-              accept last_arg
+              write " ="
+              next_token_skip_space
+              accept_assign_value_after_equals last_arg
             end
 
             return false
@@ -1804,7 +1788,7 @@ module Crystal
 
             return false
           else
-            write " "
+            write " " if needs_space
             write node.name
 
             # This is the case of a-1 and a+1
@@ -1822,7 +1806,7 @@ module Crystal
             skip_space_or_newline
             write_indent(@indent + 2, node.args.last)
           else
-            write " "
+            write " " if needs_space
             accept node.args.last
           end
           return false
@@ -1831,7 +1815,7 @@ module Crystal
         next_token
         skip_space
         if @token.type == :NEWLINE
-          newline_indent = @dot_column || @column
+          newline_indent = @dot_column || @indent + 2
           indent(newline_indent) { consume_newlines }
           write_indent(newline_indent)
         end
@@ -1873,16 +1857,7 @@ module Crystal
           next_token_skip_space
 
           assign_arg = (node.args.last as Call).args.last
-
-          if @token.type == :NEWLINE
-            write_line
-            skip_space_or_newline
-            write_indent(@indent + 2, assign_arg)
-          else
-            write " "
-            skip_space_or_newline
-            indent(@column, assign_arg)
-          end
+          accept_assign_value_after_equals assign_arg
           @dot_column = current_dot_column
           return false
         end
@@ -1899,16 +1874,7 @@ module Crystal
         else
           write " ="
           skip_space
-
-          if @token.type == :NEWLINE
-            write_line
-            skip_space_or_newline
-            write_indent(@indent + 2, node.args.last)
-          else
-            skip_space_or_newline
-            write " "
-            indent(@column, node.args.last)
-          end
+          accept_assign_value_after_equals node.args.last
         end
 
         @dot_column = current_dot_column
@@ -1919,9 +1885,8 @@ module Crystal
       ends_with_newline = false
       has_args = !node.args.empty? || node.named_args
 
-      column = @column
+      column = @indent
       has_newlines = false
-      has_first_newline = false
       found_comment = false
 
       if @token.type == :"("
@@ -1938,7 +1903,7 @@ module Crystal
 
         write "("
         has_parentheses = true
-        has_newlines, has_first_newline, found_comment = format_call_args(node, true)
+        has_newlines, found_comment = format_call_args(node, true)
         skip_space
         if @token.type == :NEWLINE
           ends_with_newline = true
@@ -1947,7 +1912,7 @@ module Crystal
       elsif has_args || node.block_arg
         write " "
         skip_space
-        has_newlines, has_first_newline, found_comment = format_call_args(node, false)
+        has_newlines, found_comment = format_call_args(node, false)
       end
 
       if block = node.block
@@ -1956,14 +1921,18 @@ module Crystal
         if has_parentheses && @token.type == :")"
           write ")"
           next_token_skip_space_or_newline
-          format_block block, base_column, needs_space
+          format_block block, needs_space
           @dot_column = current_dot_column
           return false
         end
-        format_block block, base_column, needs_space
+        format_block block, needs_space
       end
 
-      finish_args(has_parentheses, has_newlines, has_first_newline, ends_with_newline, found_comment, base_column, column)
+      if has_args || node.block_arg
+        finish_args(has_parentheses, has_newlines, ends_with_newline, found_comment, column)
+      elsif has_parentheses
+        write_token :")"
+      end
 
       @dot_column = current_dot_column
       false
@@ -1976,15 +1945,13 @@ module Crystal
     def format_args(args : Array, has_parentheses, named_args = nil, block_arg = nil, needed_indent = @indent + 2, do_consume_newlines = false)
       has_newlines = false
       found_comment = false
-      has_first_newline = false
 
       unless args.empty?
-        has_newlines, has_first_newline, found_comment, needed_indent = format_args_simple(args, needed_indent, do_consume_newlines)
+        has_newlines, found_comment, needed_indent = format_args_simple(args, needed_indent, do_consume_newlines)
       end
 
       if named_args
-        has_newlines, named_args_has_first_newline, named_args_found_comment, needed_indent = format_named_args(args, named_args, needed_indent) if named_args
-        has_first_newline = true if args.empty? && named_args_has_first_newline
+        has_newlines, named_args_found_comment, needed_indent = format_named_args(args, named_args, needed_indent) if named_args
         found_comment = true if args.empty? && named_args_found_comment
       end
 
@@ -1992,13 +1959,12 @@ module Crystal
         has_newlines = format_block_arg(block_arg, needed_indent)
       end
 
-      {has_newlines, has_first_newline, found_comment, needed_indent}
+      {has_newlines, found_comment, needed_indent}
     end
 
     def format_args_simple(args, needed_indent, do_consume_newlines)
       has_newlines = false
       found_comment = false
-      has_first_newline = false
 
       if @token.type == :NEWLINE
         if do_consume_newlines
@@ -2010,9 +1976,6 @@ module Crystal
         end
         next_needs_indent = true
         has_newlines = true
-        has_first_newline = true
-      else
-        needed_indent = @column
       end
 
       skip_space_or_newline
@@ -2043,24 +2006,21 @@ module Crystal
         end
       end
 
-      {has_newlines, has_first_newline, found_comment, needed_indent}
+      {has_newlines, found_comment, needed_indent}
     end
 
     def format_named_args(args, named_args, needed_indent)
       skip_space
 
-      named_args_column = @column
+      named_args_column = needed_indent
 
       if args.empty?
-        named_args_column = @indent + 2
       else
         write_token :","
         skip_space
         if @token.type == :NEWLINE
-          named_args_column = needed_indent
         else
           write " "
-          named_args_column = @column
         end
       end
 
@@ -2087,7 +2047,7 @@ module Crystal
       has_newlines
     end
 
-    def finish_args(has_parentheses, has_newlines, has_first_newline, ends_with_newline, found_comment, base_column, column)
+    def finish_args(has_parentheses, has_newlines, ends_with_newline, found_comment, column)
       skip_space
 
       if has_parentheses
@@ -2100,28 +2060,27 @@ module Crystal
               write ","
               write_line
             end
-            write_indent(has_first_newline ? base_column : column)
+            write_indent(column)
           end
         end
         check :")"
 
         if ends_with_newline
           write_line
-          write_indent(has_first_newline ? base_column : column)
+          write_indent(column)
         end
         write ")"
         next_token
       end
     end
 
-    def format_parenthesized_args(args, base_column, named_args = nil)
+    def format_parenthesized_args(args, named_args = nil)
       write "("
       next_token_skip_space
-      column = @column
-      has_newlines, has_first_newline, found_comment, _ = format_args args, true, named_args: named_args
+      has_newlines, found_comment, _ = format_args args, true, named_args: named_args
       skip_space
       ends_with_newline = @token.type == :NEWLINE
-      finish_args(true, has_newlines, has_first_newline, ends_with_newline, found_comment, base_column, column)
+      finish_args(true, has_newlines, ends_with_newline, found_comment, @indent)
     end
 
     def visit(node : NamedArgument)
@@ -2134,7 +2093,7 @@ module Crystal
       false
     end
 
-    def format_block(node, base_column, needs_space)
+    def format_block(node, needs_space)
       needs_comma = false
       @dot_column = nil
 
@@ -2156,7 +2115,7 @@ module Crystal
         if @token.type == :NEWLINE
           format_nested node.body
           skip_space_or_newline
-          write_indent(base_column)
+          write_indent
         else
           unless node.body.is_a?(Nop)
             write " "
@@ -2291,9 +2250,9 @@ module Crystal
         next_token_skip_space
         case right = node.right
         when Assign
-          indent(@column, right.value)
+          accept_assign_value(right.value)
         when Call
-          indent(@column, right.args.last)
+          accept_assign_value(right.args.last)
         else
           raise "Bug: expected Assign or Call after op assign, at #{node.location}"
         end
@@ -2334,27 +2293,38 @@ module Crystal
         slash_is_regex!
         write_token " ", :"="
         skip_space
-        if @token.type == :NEWLINE
-          next_token_skip_space_or_newline
-          write_line
-          write_indent(@indent + 2, node.value)
-        else
-          write " "
-          before_column = @column
-          indent(@column, node.value)
-          check_assign_align before_column, node.value if check_align
-        end
+        accept_assign_value_after_equals node.value, check_align: check_align
       else
         # This is the case of `target op= value`
         write " "
         write @token.type
-        write " "
-        next_token_skip_space_or_newline
-        call = node.value as Call
-        accept call.args.last
+        next_token_skip_space
+        value = (node.value as Call).args.last
+        accept_assign_value_after_equals value
       end
 
       false
+    end
+
+    def accept_assign_value_after_equals(value, check_align = false)
+      if @token.type == :NEWLINE
+        next_token_skip_space_or_newline
+        write_line
+        write_indent(@indent + 2, value)
+      else
+        write " "
+        accept_assign_value value, check_align: check_align
+      end
+    end
+
+    def accept_assign_value(value, check_align = false)
+      before_column = @column
+      if @token.keyword?(:if) || @token.keyword?(:case)
+        indent(@column, value)
+      else
+        accept value
+      end
+      check_assign_align before_column, value if check_align
     end
 
     def check_assign_length(exp)
@@ -2563,8 +2533,6 @@ module Crystal
     end
 
     def visit(node : Yield)
-      base_column = @indent
-
       if scope = node.scope
         write_keyword :with, " "
         accept scope
@@ -2574,9 +2542,8 @@ module Crystal
 
       write_keyword :yield
 
-      column = @column
       if @token.type == :"("
-        format_parenthesized_args(node.exps, base_column)
+        format_parenthesized_args(node.exps)
       else
         write " " unless node.exps.empty?
         skip_space
@@ -2587,8 +2554,6 @@ module Crystal
     end
 
     def visit(node : Case)
-      prefix_indent = @indent
-
       slash_is_regex!
       write_keyword :case
       skip_space_or_newline
@@ -2601,14 +2566,14 @@ module Crystal
       skip_space_write_line
 
       node.whens.each_with_index do |a_when, i|
-        write_indent(prefix_indent) { format_when(node, a_when, last?(i, node.whens)) }
-        indent(prefix_indent + 2) { skip_space_or_newline }
+        write_indent { format_when(node, a_when, last?(i, node.whens)) }
+        indent(@indent + 2) { skip_space_or_newline }
       end
 
       skip_space_or_newline
 
       if a_else = node.else
-        write_indent(prefix_indent)
+        write_indent
         write_keyword :else
         found_comment = skip_space
         if @token.type == :NEWLINE || found_comment
@@ -2617,9 +2582,9 @@ module Crystal
             next_token
           end
           skip_space_or_newline
-          write_indent(prefix_indent + 2, a_else)
+          write_indent(@indent + 2, a_else)
           write_line
-          indent(prefix_indent + 2) { skip_space_or_newline }
+          indent(@indent + 2) { skip_space_or_newline }
         else
           @when_infos << AlignInfo.new(node.object_id, @line, @column, @column, @column, false)
           write " "
@@ -2630,7 +2595,7 @@ module Crystal
       end
 
       check_end
-      write_indent(prefix_indent)
+      write_indent
       write "end"
       next_token
 
@@ -2639,7 +2604,6 @@ module Crystal
 
     def format_when(case_node, node, is_last)
       skip_space_or_newline
-      prefix_indent = @indent
 
       slash_is_regex!
       write_keyword :when, " "
@@ -2679,7 +2643,7 @@ module Crystal
           next_token_skip_space
         end
         if @token.type == :NEWLINE
-          format_nested(node.body, prefix_indent)
+          format_nested(node.body, @indent)
         else
           write " " if separator == "then"
           write separator
@@ -2694,7 +2658,7 @@ module Crystal
           write_line unless found_comment
         end
       else
-        format_nested(node.body, prefix_indent)
+        format_nested(node.body, @indent)
       end
 
       false
@@ -2705,8 +2669,6 @@ module Crystal
     end
 
     def visit(node : Attribute)
-      base_column = @column
-
       write_token :"@["
       skip_space_or_newline
 
@@ -2716,7 +2678,7 @@ module Crystal
       if @token.type == :"("
         has_args = !node.args.empty? || node.named_args
         if has_args
-          format_parenthesized_args(node.args, base_column, named_args: node.named_args)
+          format_parenthesized_args(node.args, named_args: node.named_args)
         else
           next_token_skip_space_or_newline
           check :")"
@@ -2794,22 +2756,26 @@ module Crystal
         write_indent(@indent + 2, node.values.first)
       else
         write " "
-        indent(@column) do
-          format_mutli_assign_values node.values
-        end
+        format_mutli_assign_values node.values
       end
 
       false
     end
 
     def format_mutli_assign_values(values)
-      values.each_with_index do |value, i|
-        accept value
-        unless last?(i, values)
-          skip_space_or_newline
-          if @token.type == :","
-            write ", "
-            next_token_skip_space_or_newline
+      if values.size == 1
+        accept_assign_value values.first
+      else
+        indent(@column) do
+          values.each_with_index do |value, i|
+            accept value
+            unless last?(i, values)
+              skip_space_or_newline
+              if @token.type == :","
+                write ", "
+                next_token_skip_space_or_newline
+              end
+            end
           end
         end
       end
@@ -2986,12 +2952,12 @@ module Crystal
 
       if is_do
         check_end
-        write_indent(@indent)
+        write_indent
         write "end"
         next_token
       else
         if @wrote_newline
-          write_indent(@indent)
+          write_indent
         end
         write_token :"}"
       end
@@ -3180,7 +3146,7 @@ module Crystal
 
       if has_newlines
         write_line
-        write_indent(@indent)
+        write_indent
       end
 
       write_token :")"
@@ -3271,7 +3237,8 @@ module Crystal
       end
     end
 
-    def skip_space_or_newline(last = false)
+    def skip_space_or_newline(last = false, at_least_one = false)
+      just_wrote_line = @wrote_newline
       base_column = @column
       has_space = false
       newlines = 0
@@ -3294,8 +3261,14 @@ module Crystal
         if needs_space
           write " "
         elsif last && newlines > 0
-          write_line if !@wrote_newline && newlines > 1
-          write_line
+          if newlines > 1
+            write_line if !just_wrote_line && !@wrote_newline
+            write_line
+          elsif !@wrote_newline
+            write_line
+          elsif at_least_one
+            write_line
+          end
         end
         write_comment(needs_indent: !needs_space)
         true
@@ -3466,7 +3439,7 @@ module Crystal
       indent(indent, node)
     end
 
-    def write_indent(indent)
+    def write_indent(indent = @indent)
       write_indent(indent)
       indent(indent) { yield }
     end
@@ -3516,7 +3489,7 @@ module Crystal
     def finish
       skip_space
       write_line
-      skip_space_or_newline
+      skip_space_or_newline last: true
       result = to_s.strip
       lines = result.split("\n")
       align_infos(lines, @when_infos)
@@ -3530,7 +3503,7 @@ module Crystal
       result
     end
 
-    # Align series of succesive inline when/else (in a case),
+    # Align series of successive inline when/else (in a case),
     # or hash literals (the left side of the =>)
     def align_infos(lines, align_infos)
       max_size = nil
@@ -3583,10 +3556,10 @@ module Crystal
       before = line[0...middle]
       after = line[middle..-1]
       result = String.build do |str|
-                 str << before
-                 gap.times { str << " " }
-                 str << after
-               end
+        str << before
+        gap.times { str << " " }
+        str << after
+      end
 
       lines[info.line] = result
 
@@ -3637,10 +3610,10 @@ module Crystal
       gap = max_column - comment_column
 
       result = String.build do |str|
-                 str << source_line
-                 gap.times { str << " " }
-                 str << comment_line
-               end
+        str << source_line
+        gap.times { str << " " }
+        str << comment_line
+      end
       result
     end
 
@@ -3652,13 +3625,13 @@ module Crystal
         sharp_index = first_line.index('#').not_nil!
 
         comment = String.build do |str|
-                    (doc_comment.start_line..doc_comment.end_line).each do |i|
-                      line = lines[i].strip[1..-1]
-                      line = line[1..-1] if line[0]? == ' '
-                      str << line
-                      str << '\n'
-                    end
-                  end
+          (doc_comment.start_line..doc_comment.end_line).each do |i|
+            line = lines[i].strip[1..-1]
+            line = line[1..-1] if line[0]? == ' '
+            str << line
+            str << '\n'
+          end
+        end
 
         begin
           formatted_comment = Formatter.format(comment)
