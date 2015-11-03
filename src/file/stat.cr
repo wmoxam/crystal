@@ -95,7 +95,7 @@ lib LibC
   S_IFMT   = 0o170000
 
   fun stat(path : Char*, stat : Stat*) : Int
-  fun lstat(path : Char*, stat : Stat *) : Int
+  fun lstat(path : Char*, stat : Stat*) : Int
   fun fstat(fileno : Int, stat : Stat*) : Int
 end
 
