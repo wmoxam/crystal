@@ -918,6 +918,7 @@ describe "Parser" do
   it_parses "->(x : Int32) { x }", FunLiteral.new(Def.new("->", [Arg.new("x", restriction: "Int32".path)], "x".var))
   it_parses "->(x) { x }", FunLiteral.new(Def.new("->", [Arg.new("x")], "x".var))
   it_parses "x = 1; ->{ x }", [Assign.new("x".var, 1.int32), FunLiteral.new(Def.new("->", body: "x".var))]
+  it_parses "f ->{ a do\n end\n }", Call.new(nil, "f", FunLiteral.new(Def.new("->", body: Call.new(nil, "a", block: Block.new))))
 
   it_parses "->foo", FunPointer.new(nil, "foo")
   it_parses "->Foo.foo", FunPointer.new("Foo".path, "foo")
@@ -1123,25 +1124,25 @@ describe "Parser" do
   end
 
   assert_syntax_error "def foo(x = 1, y); end",
-                      "argument must have a default value"
+    "argument must have a default value"
 
   assert_syntax_error " [1, 2, 3 end",
-                      "unterminated array literal", 1, 2
+    "unterminated array literal", 1, 2
 
   assert_syntax_error " {1 => end",
-                      "unterminated hash literal", 1, 2
+    "unterminated hash literal", 1, 2
 
   assert_syntax_error " {1, 2, 3 end",
-                      "unterminated tuple literal", 1, 2
+    "unterminated tuple literal", 1, 2
 
   assert_syntax_error " (1, 2, 3 end",
-                      "unterminated parenthesized expression", 1, 2
+    "unterminated parenthesized expression", 1, 2
 
   assert_syntax_error "foo(1, 2, 3 end",
-                      "expecting token ')', not 'end'", 1, 13
+    "expecting token ')', not 'end'", 1, 13
 
   assert_syntax_error "foo(foo(&.block)",
-                      "expecting token ')', not 'EOF'", 1, 17
+    "expecting token ')', not 'EOF'", 1, 17
 
   assert_syntax_error "case when .foo? then 1; end"
   assert_syntax_error "macro foo;{%end};end"
@@ -1191,15 +1192,15 @@ describe "Parser" do
   assert_syntax_error "lib LibC\n$Errno : Int32\nend", "external variables must start with lowercase, use for example `$errno = Errno : Int32`"
 
   assert_syntax_error "a += 1",
-                      "'+=' before definition of 'a'"
+    "'+=' before definition of 'a'"
   assert_syntax_error "self = 1",
-                      "can't change the value of self"
+    "can't change the value of self"
   assert_syntax_error "self += 1",
-                      "can't change the value of self"
+    "can't change the value of self"
   assert_syntax_error "self, x = 1, 2",
-                      "can't change the value of self"
+    "can't change the value of self"
   assert_syntax_error "x, self = 1, 2",
-                      "can't change the value of self"
+    "can't change the value of self"
 
   assert_syntax_error "macro foo(x : Int32); end"
 
@@ -1254,6 +1255,12 @@ describe "Parser" do
     ), "invalid trailing comma in call"
 
   assert_syntax_error "foo 1,", "invalid trailing comma in call"
+  assert_syntax_error "def foo:String\nend", "a space is mandatory between ':' and return type"
+  assert_syntax_error "def foo :String\nend", "a space is mandatory between ':' and return type"
+  assert_syntax_error "def foo():String\nend", "a space is mandatory between ':' and return type"
+  assert_syntax_error "def foo() :String\nend", "a space is mandatory between ':' and return type"
+
+  assert_syntax_error "foo.responds_to?"
 
   describe "end locations" do
     assert_end_location "nil"

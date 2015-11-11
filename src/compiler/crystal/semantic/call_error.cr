@@ -9,7 +9,7 @@ class Crystal::Call
 
   def raise_struct_or_union_field_not_found(owner, def_name)
     if def_name.ends_with?('=')
-    def_name = def_name[0 .. -2]
+      def_name = def_name[0..-2]
     end
 
     var = owner.vars[def_name]?
@@ -87,7 +87,7 @@ class Crystal::Call
         if similar_name
           if similar_name == def_name
             # This check is for the case `a if a = 1`
-            msg << colorize(" (if you declared '#{def_name}' in a suffix if, declare it in a regular if for this to work)").yellow.bold
+            msg << colorize(" (If you declared '#{def_name}' in a suffix if, declare it in a regular if for this to work. If the variable was declared in a macro it's not visible outside it)").yellow.bold
           else
             msg << colorize(" (did you mean '#{similar_name}'?)").yellow.bold
           end
