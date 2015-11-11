@@ -25,9 +25,9 @@ lib LibC
   alias PidT = Int
   alias OffT = SSizeT
 
-  ifdef darwin || openbsd
+  ifdef darwin
     alias ModeT = UInt16
-  elsif linux
+  elsif linux || openbsd
     alias ModeT = UInt32
   end
 
