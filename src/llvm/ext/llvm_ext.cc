@@ -1,11 +1,17 @@
 #include <llvm-c/Core.h>
-#include <llvm/IR/DebugLoc.h>
 #include <llvm/IR/Metadata.h>
 #include "llvm/Support/CBindingWrapping.h"
 #include <llvm/IR/LLVMContext.h>
 #include "llvm/IR/Module.h"
-#include "llvm/IR/DIBuilder.h"
 #include "llvm/IR/IRBuilder.h"
+#if defined(__OpenBSD__)
+#include <llvm/Support/DebugLoc.h>
+#include "llvm/DIBuilder.h"
+#else
+#include <llvm/IR/DebugLoc.h>
+#include "llvm/IR/DIBuilder.h"
+#endif
+
 
 using namespace llvm;
 
@@ -100,14 +106,15 @@ LLVMMetadataRef LLVMDIBuilderCreateLexicalBlock(LLVMDIBuilderRef Dref,
                                                 unsigned Column) {
   DIBuilder *D = unwrap(Dref);
   DILexicalBlock LB = D->createLexicalBlock(
-#ifdef __OpenBSD__
-  #if HAVE_LLVM_35
-        unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column, 0);
-  #else
-        unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column);
-  #endif
+
+#if HAVE_LLVM_35
+      #if defined(__OpenBSD__)
+            unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column);
+      #else
+            unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column, 0);
+      #endif
 #else
-    unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column);
+      unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column);
 #endif
   return wrap(LB);
 }
