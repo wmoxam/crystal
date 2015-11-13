@@ -64,9 +64,9 @@ lib LibC
     end
   elsif openbsd
     struct Stat
+      st_mode : LibC::ModeT
       st_dev : Int32
       st_ino : UInt64
-      st_mode : LibC::ModeT
       st_nlink : UInt32
       st_uid : UInt32
       st_gid : UInt32
