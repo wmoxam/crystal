@@ -1,11 +1,17 @@
 #include <llvm-c/Core.h>
-#include <llvm/IR/DebugLoc.h>
 #include <llvm/IR/Metadata.h>
 #include "llvm/Support/CBindingWrapping.h"
 #include <llvm/IR/LLVMContext.h>
 #include "llvm/IR/Module.h"
-#include "llvm/IR/DIBuilder.h"
 #include "llvm/IR/IRBuilder.h"
+#if defined(__OpenBSD__)
+#include <llvm/Support/DebugLoc.h>
+#include "llvm/DIBuilder.h"
+#else
+#include <llvm/IR/DebugLoc.h>
+#include "llvm/IR/DIBuilder.h"
+#endif
+
 
 using namespace llvm;
 
@@ -13,6 +19,24 @@ using namespace llvm;
   #define HAVE_LLVM_35 1
 #endif
 
+#if defined(__OpenBSD__)
+const // It is a const object...
+class nullptr_t
+{
+  public:
+    template<class T>
+    inline operator T*() const // convertible to any type of null non-member pointer...
+    { return 0; }
+
+    template<class C, class T>
+    inline operator T C::*() const   // or any type of null member pointer...
+    { return 0; }
+
+  private:
+    void operator&() const;  // Can't take address of nullptr
+
+} nullptr = {};
+#endif
 
 typedef struct LLVMOpaqueDIBuilder *LLVMDIBuilderRef;
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(DIBuilder, LLVMDIBuilderRef)
@@ -82,8 +106,13 @@ LLVMMetadataRef LLVMDIBuilderCreateLexicalBlock(LLVMDIBuilderRef Dref,
                                                 unsigned Column) {
   DIBuilder *D = unwrap(Dref);
   DILexicalBlock LB = D->createLexicalBlock(
+
 #if HAVE_LLVM_35
-      unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column, 0);
+      #if defined(__OpenBSD__)
+            unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column);
+      #else
+            unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column, 0);
+      #endif
 #else
       unwrapDI<DIDescriptor>(Scope), unwrapDI<DIFile>(File), Line, Column);
 #endif

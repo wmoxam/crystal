@@ -27,7 +27,7 @@ lib LibC
 
   ifdef darwin
     alias ModeT = UInt16
-  elsif linux
+  elsif linux || openbsd
     alias ModeT = UInt32
   end
 
@@ -58,7 +58,7 @@ lib LibC
   MAP_SHARED  = 0x0001
   MAP_PRIVATE = 0x0002
 
-  ifdef darwin
+  ifdef darwin || openbsd
     MAP_ANON = 0x1000
   end
   ifdef linux

@@ -13,7 +13,7 @@ lib LibC
       addr : SockAddr*
       next : Addrinfo*
     end
-  else
+  else # Linux, OpenBSD
     struct Addrinfo
       flags : Int
       family : Int
