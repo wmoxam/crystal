@@ -1,9 +1,7 @@
 #!/bin/sh
 
-Need to fetch source for PCL and manually install (I don't think there is a port, could be wrong)
-
 In OS X:
-.build/crystal build --cross-compile "OpenBSD Amd64" --target amd64-unknown-openbsd5.8 src/compiler/crystal.cr
+.build/crystal build --cross-compile "OpenBSD x86_64" --target amd64-unknown-openbsd5.8 src/compiler/crystal.cr
 
 In OpenBSD:
 pkg_add llvm pcre boehm-gc libevent
