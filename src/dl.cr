@@ -15,17 +15,10 @@ lib LibDL
   fun dlopen(path : LibC::Char*, mode : LibC::Int) : Void*
 
   ifdef darwin || openbsd
-<<<<<<< HEAD
     RTLD_NEXT       = Pointer(Void).new(-1)
     RTLD_DEFAULT    = Pointer(Void).new(-2)
     RTLD_SELF       = Pointer(Void).new(-3)
     RTLD_MAIN_ONLY  = Pointer(Void).new(-5)
-=======
-    RTLD_NEXT      = Pointer(Void).new(-1)
-    RTLD_DEFAULT   = Pointer(Void).new(-2)
-    RTLD_SELF      = Pointer(Void).new(-3)
-    RTLD_MAIN_ONLY = Pointer(Void).new(-5)
->>>>>>> origin/openbsd-port
   else
     RTLD_NEXT    = Pointer(Void).new(-1)
     RTLD_DEFAULT = Pointer(Void).new(0)
