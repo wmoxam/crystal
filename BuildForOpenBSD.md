@@ -6,7 +6,7 @@ In OS X:
 In OpenBSD:
 pkg_add llvm pcre boehm-gc libevent
 
-Manually install libpcl (http://www.xmailserver.org/libpcl.html)
+Copy crystal.o from OSX to the crystal source under OpenBSD
 
 clang++ -c -o src/llvm/ext/llvm_ext.o src/llvm/ext/llvm_ext.cc `llvm-config --cxxflags`
-clang++ crystal.o -o crystal -rdynamic  src/llvm/ext/llvm_ext.o `(llvm-config --libs --system-libs --ldflags 2> /dev/null)` -lstdc++ -levent -lpcl -lpcre -lgc -lpthread -levent_core -levent_extra
+clang++ crystal.o -o crystal -rdynamic  src/llvm/ext/llvm_ext.o `(llvm-config --libs --system-libs --ldflags 2> /dev/null)` -lstdc++ -levent -lpcre -lgc -lpthread -levent_core -levent_extra
