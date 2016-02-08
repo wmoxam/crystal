@@ -10,7 +10,7 @@ struct StaticArray(T, N)
   # StaticArray(Int32, 3).new { |i| i * 2 } # => [0, 2, 4]
   # ```
   def self.new(&block : Int32 -> T)
-    array :: self
+    array = uninitialized self
     N.times do |i|
       array.to_unsafe[i] = yield i
     end
@@ -105,6 +105,12 @@ struct StaticArray(T, N)
 
   def to_slice
     Slice.new(to_unsafe, size)
+  end
+
+  def hash
+    reduce(31 * size) do |memo, elem|
+      31 * memo + elem.hash
+    end
   end
 
   # Returns a pointer to this static array's data.

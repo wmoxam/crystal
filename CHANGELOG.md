@@ -1,3 +1,48 @@
+## Next
+
+* Added encoding support: `IO#set_encoding`, `String#encode`, and `HTTP::Client` charset check.
+* The `record` macro can now accept type declarations (for example `record Point, x : Int32, y : Int32`)
+* Added `Iterator#step` (thanks @jhass)
+* `Array#push` and `Array#unshift` can now accept multiple values and add the elements in an efficient way (thanks @arktisklada)
+* Added `default` option to `JSON.mapping` (thanks @kostya)
+* Added `default` option to `YAML.mapping` (thanks @jreinert)
+* Allow doing `case foo; when Foo.class` (and `Foo(T)` and `Foo(T).class`) in case expressions.
+* Added `Class#|` so a union type can be expresses as `Int32 | Char` in regular code.
+* Many bug fixes
+
+## 0.11.1 (2016-01-25)
+* Fixed #2050, #2054, #2057, #2059, #2064
+* Fixed bug: HTTP::Server::Response headers weren't cleared after each request
+* Formatter would incorrectly change `property x :: Int32` to `property x = uninitialized Int32`
+
+## 0.11.0 (2016-01-23)
+
+* **(breaking change)** Syntax for type declarations changed from `var :: Type` to `var : Type`. The old syntax is still allowed but will be deprecated in the next version (run `crystal tool format` to automatically fix this)
+* **(breaking change)** Syntax for uninitialized variables, which used to be `var :: Type`, is now `var = uninitialized Type`. The old syntax is still allowed but will be deprecated in the next version (run `crystal tool format` to automatically fix this)
+* **(breaking change)** `HTTP::Server` refactor to support streaming. Check the [docs](http://crystal-lang.org/api/HTTP/Server.html) of `HTTP::Server` for upgrade instructions
+* **(breaking change)** Renamed `HTTP::WebSocketSession` to `HTTP::WebSocket`.
+* **(breaking change)** Heredocs now remove indentations according to the indentation of the closing identifier (thanks @rhysd)
+* **(breaking change)** Renamed `Enumerable#inject` to `Enumerable#reduce`
+* **(breaking change)** `next` and `return` semantic inside captured block has been swapped (#420)
+* Fibers context switch is now faster, done with inline assembly. `libpcl` is no longer used
+* Allow annotating the type of class and global variables
+* Support comments in ECR (thanks @ysbaddaden)
+* Security improvements to `HTTP::StaticFileHandler` (thanks @MakeNowJust)
+* Moved `seek`, `tell`, `pos` and `pos=` from `File` to `IO::FileDescriptor` (affects `Tempfile`)
+* `URI.parse` is now faster (thanks @will)
+* Many bug fixes, some really old ones involving issues with order of declaration
+
+## 0.10.2 (2016-01-13)
+
+* Fixed Directory Traversal Vulnerability in HTTP::StaticFileHandler (thanks @MakeNowJust)
+
+## 0.10.1 (2016-01-08)
+
+* Added `Int#popcount` (thanks @rmosolgo)
+* Added `@[Naked]` attribute for ommiting a method's prelude
+* Check that abstract methods are implemented by subtypes
+* Some bug fixes
+
 ## 0.10.0 (2015-12-23)
 
 * **(breaking change)** `def` arguments must always be enclosed in parentheses

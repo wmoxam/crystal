@@ -308,6 +308,7 @@ describe "Parser" do
   it_parses "def foo(@@var); end", Def.new("foo", [Arg.new("var")], [Assign.new("@@var".class_var, "var".var)] of ASTNode)
   it_parses "def foo(@@var); 1; end", Def.new("foo", [Arg.new("var")], [Assign.new("@@var".class_var, "var".var), 1.int32] of ASTNode)
   it_parses "def foo(@@var = 1); 1; end", Def.new("foo", [Arg.new("var", 1.int32)], [Assign.new("@@var".class_var, "var".var), 1.int32] of ASTNode)
+  it_parses "def foo(var = x : Int); end", Def.new("foo", [Arg.new("var", default_value: "x".call, restriction: "Int".path)])
 
   it_parses "def foo(&@block); end", Def.new("foo", body: Assign.new("@block".instance_var, "block".var), block_arg: Arg.new("block"), yields: 0)
 
@@ -868,9 +869,15 @@ describe "Parser" do
   it_parses "a = 1\nfoo - a", [Assign.new("a".var, 1.int32), Call.new("foo".call, "-", "a".var)]
   it_parses "a = 1\nfoo -a", [Assign.new("a".var, 1.int32), Call.new(nil, "foo", Call.new("a".var, "-"))]
 
-  it_parses "a :: Foo", DeclareVar.new("a".var, "Foo".path)
-  it_parses "a :: Foo | Int32", DeclareVar.new("a".var, Union.new(["Foo".path, "Int32".path] of ASTNode))
-  it_parses "@a :: Foo | Int32", DeclareVar.new("@a".instance_var, Union.new(["Foo".path, "Int32".path] of ASTNode))
+  it_parses "a : Foo", TypeDeclaration.new("a".var, "Foo".path)
+  it_parses "a : Foo | Int32", TypeDeclaration.new("a".var, Union.new(["Foo".path, "Int32".path] of ASTNode))
+  it_parses "@a : Foo", TypeDeclaration.new("@a".instance_var, "Foo".path)
+  it_parses "@a : Foo | Int32", TypeDeclaration.new("@a".instance_var, Union.new(["Foo".path, "Int32".path] of ASTNode))
+  it_parses "@@a : Foo", TypeDeclaration.new("@@a".class_var, "Foo".path)
+  it_parses "$x : Foo", TypeDeclaration.new(Global.new("$x"), "Foo".path)
+
+  it_parses "a = uninitialized Foo; a", [UninitializedVar.new("a".var, "Foo".path), "a".var]
+  it_parses "@a = uninitialized Foo", UninitializedVar.new("@a".instance_var, "Foo".path)
 
   it_parses "()", NilLiteral.new
   it_parses "(1; 2; 3)", [1.int32, 2.int32, 3.int32] of ASTNode
@@ -1032,6 +1039,20 @@ describe "Parser" do
   it_parses %("hello "\\\n"world"), StringLiteral.new("hello world")
   it_parses %("hello \#{1}" \\\n "\#{2} world"), StringInterpolation.new(["hello ".string, 1.int32, 2.int32, " world".string] of ASTNode)
   it_parses "<<-HERE\nHello, mom! I am HERE.\nHER dress is beautiful.\nHE is OK.\n  HERESY\nHERE", "Hello, mom! I am HERE.\nHER dress is beautiful.\nHE is OK.\n  HERESY".string
+  it_parses "<<-HERE\n   One\n  Zero\n  HERE", " One\nZero".string
+  it_parses "<<-HERE\n   One\n\n  Zero\n  HERE", " One\n\nZero".string
+  it_parses "<<-HERE\n   One\n \n  Zero\n  HERE", " One\n\nZero".string
+  it_parses "<<-HERE\n   \#{1}One\n  \#{2}Zero\n  HERE", StringInterpolation.new([" ".string, 1.int32, "One\n".string, 2.int32, "Zero".string] of ASTNode)
+  it_parses "<<-HERE\n  foo\#{1}bar\n   baz\n  HERE", StringInterpolation.new(["foo".string, 1.int32, "bar\n".string, " baz".string] of ASTNode)
+  it_parses "<<-HERE\r\n   One\r\n  Zero\r\n  HERE", " One\r\nZero".string
+  it_parses "<<-HERE\r\n   One\r\n  Zero\r\n  HERE\r\n", " One\r\nZero".string
+  it_parses "<<-SOME\n  Sa\n  Se\n  SOME", "Sa\nSe".string
+  assert_syntax_error "<<-HERE\n   One\nwrong\n  Zero\n  HERE", "heredoc line must have an indent greater or equal than 2", 3, 1
+  assert_syntax_error "<<-HERE\n   One\n wrong\n  Zero\n  HERE", "heredoc line must have an indent greater or equal than 2", 3, 1
+  assert_syntax_error "<<-HERE\n   One\n \#{1}\n  Zero\n  HERE", "heredoc line must have an indent greater or equal than 2", 3, 1
+  assert_syntax_error "<<-HERE\n   One\n  \#{1}\n wrong\n  HERE", "heredoc line must have an indent greater or equal than 2", 4, 1
+  assert_syntax_error "<<-HERE\n   One\n  \#{1}\n wrong\#{1}\n  HERE", "heredoc line must have an indent greater or equal than 2", 4, 1
+  assert_syntax_error "<<-HERE\n One\n  \#{1}\n  HERE", "heredoc line must have an indent greater or equal than 2", 2, 1
   assert_syntax_error %("foo" "bar")
 
   it_parses "enum Foo; A\nB, C\nD = 1; end", EnumDef.new("Foo".path, [Arg.new("A"), Arg.new("B"), Arg.new("C"), Arg.new("D", 1.int32)] of ASTNode)
@@ -1107,7 +1128,7 @@ describe "Parser" do
   end
 
   it "keeps instance variables declared in def with declare var" do
-    node = Parser.parse("def foo; @x :: Int32; end") as Def
+    node = Parser.parse("def foo; @x = uninitialized Int32; end") as Def
     node.instance_vars.should eq(Set.new(["@x"]))
   end
 
@@ -1257,6 +1278,11 @@ describe "Parser" do
   assert_syntax_error "def foo() :String\nend", "a space is mandatory between ':' and return type"
 
   assert_syntax_error "foo.responds_to?"
+
+  assert_syntax_error "foo :: Foo"
+  assert_syntax_error "@foo :: Foo"
+  assert_syntax_error "@@foo :: Foo"
+  assert_syntax_error "$foo :: Foo"
 
   describe "end locations" do
     assert_end_location "nil"

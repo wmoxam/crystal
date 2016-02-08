@@ -1,18 +1,39 @@
 require "ecr/macros"
+require "html"
+require "uri"
 
+# A simple handler that lists directories and serves files under a given public directory.
 class HTTP::StaticFileHandler < HTTP::Handler
-  def initialize(@publicdir)
+  # Creates a handler that will serve files in the given *public_dir*, after
+  # expanding it (using `File#expand_path`).
+  def initialize(public_dir)
+    @public_dir = File.expand_path public_dir
   end
 
-  def call(request)
-    request_path = request.path.not_nil!
-    file_path = @publicdir + request_path
+  def call(context)
+    request_path = URI.unescape(context.request.path.not_nil!)
+
+    # File path cannot contains '\0' (NUL) because all filesystem I know
+    # don't accept '\0' character as file name.
+    if request_path.includes? '\0'
+      context.response.status_code = 400
+      return
+    end
+
+    expanded_path = File.expand_path(request_path, "/")
+
+    file_path = File.join(@public_dir, expanded_path)
     if Dir.exists?(file_path)
-      HTTP::Response.new(200, directory_listing(request_path, file_path), HTTP::Headers{"Content-Type": "text/html"})
+      context.response.content_type = "text/html"
+      directory_listing(context.response, request_path, file_path)
     elsif File.exists?(file_path)
-      HTTP::Response.new(200, File.read(file_path), HTTP::Headers{"Content-Type": mime_type(file_path)})
+      context.response.content_type = mime_type(file_path)
+      context.response.content_length = File.size(file_path)
+      File.open(file_path) do |file|
+        IO.copy(file, context.response)
+      end
     else
-      call_next(request)
+      call_next(context)
     end
   end
 
@@ -27,10 +48,18 @@ class HTTP::StaticFileHandler < HTTP::Handler
   end
 
   record DirectoryListing, request_path, path do
+    def escaped_request_path
+      @escaped_request_path ||= begin
+        esc_path = request_path.split('/').map { |path| URI.escape path }.join('/')
+        esc_path = esc_path[0..-2] if !esc_path.empty? && esc_path[-1] == '/'
+        esc_path
+      end
+    end
+
     ecr_file "#{__DIR__}/static_file_handler.html"
   end
 
-  private def directory_listing(request_path, path)
-    DirectoryListing.new(request_path, path).to_s
+  private def directory_listing(io, request_path, path)
+    DirectoryListing.new(request_path, path).to_s(io)
   end
 end

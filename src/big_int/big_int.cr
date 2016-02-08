@@ -184,7 +184,7 @@ struct BigInt < Int
 
   def to_s(io)
     str = to_cstr
-    io.write Slice.new(str, LibC.strlen(str))
+    io.write_utf8 Slice.new(str, LibC.strlen(str))
   end
 
   def to_s(base : Int)
@@ -197,6 +197,10 @@ struct BigInt < Int
     ary = [] of Int32
     self.to_s.each_char { |c| ary << c - '0' }
     ary
+  end
+
+  def popcount
+    LibGMP.popcount(self)
   end
 
   def to_i

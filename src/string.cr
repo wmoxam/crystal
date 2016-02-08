@@ -129,6 +129,24 @@ class String
     new(slice.pointer(slice.size), slice.size)
   end
 
+  # Creates a new String from the given *bytes*, which are encoded in the given *encoding*.
+  #
+  # The *invalid* argument can be:
+  # * `nil`: an exception is raised on invalid byte sequences
+  # * `:skip`: invalid byte sequences are ignored
+  #
+  # ```
+  # slice = Slice.new(2, 0_u8)
+  # slice[0] = 186_u8
+  # slice[1] = 195_u8
+  # String.new(slice, "GB2312") # => "好"
+  # ```
+  def self.new(bytes : Slice(UInt8), encoding : String, invalid = nil : Symbol?) : String
+    String.build do |str|
+      String.encode(bytes, encoding, "UTF-8", str, invalid)
+    end
+  end
+
   # Creates a String from a pointer. Bytes will be copied from the pointer.
   #
   # This method is **unsafe**: the pointer must point to data that eventually
@@ -884,30 +902,13 @@ class String
   end
 
   # Returns a new String with *str* removed if the string ends with it.
-  # If *str* is `""`, all trailing `\r\n` or `\n` characters are removed.
   #
   # ```
   # "hello".chomp("llo") # => "he"
   # "hello".chomp("ol")  # => "hello"
-  #
-  # "hello\n\n\n\n".chomp("")   # => "hello"
-  # "hello\r\n\r\n".chomp("")   # => "hello"
-  # "hello\r\n\r\r\n".chomp("") # => "hello\r\n\r"
   # ```
   def chomp(str : String)
-    if str.empty?
-      return self if empty?
-
-      pos = bytesize - 1
-      while pos > 0 && to_unsafe[pos] === '\n'
-        if pos > 1 && to_unsafe[pos - 1] === '\r'
-          pos -= 2
-        else
-          pos -= 1
-        end
-      end
-      String.new(unsafe_byte_slice(0, pos + 1))
-    elsif ends_with?(str)
+    if ends_with?(str)
       String.new(unsafe_byte_slice(0, bytesize - str.bytesize))
     else
       self
@@ -939,6 +940,43 @@ class String
     end
 
     self[0, size - 1]
+  end
+
+  # Returns a slice of bytes containing this string encoded in the given encoding.
+  #
+  # The *invalid* argument can be:
+  # * `nil`: an exception is raised on invalid byte sequences
+  # * `:skip`: invalid byte sequences are ignored
+  #
+  # ```
+  # "好".encode("GB2312") # => [186, 195]
+  # "好".bytes            # => [229, 165, 189]
+  # ```
+  def encode(encoding : String, invalid = nil : Symbol?) : Slice(UInt8)
+    io = MemoryIO.new
+    String.encode(to_slice, "UTF-8", encoding, io, invalid)
+    io.to_slice
+  end
+
+  # :nodoc:
+  protected def self.encode(slice, from, to, io, invalid)
+    IO::EncodingOptions.check_invalid(invalid)
+
+    inbuf_ptr = slice.to_unsafe
+    inbytesleft = LibC::SizeT.new(slice.size)
+    outbuf = uninitialized UInt8[1024]
+
+    Iconv.new(from, to, invalid) do |iconv|
+      while inbytesleft > 0
+        outbuf_ptr = outbuf.to_unsafe
+        outbytesleft = LibC::SizeT.new(outbuf.size)
+        err = iconv.convert(pointerof(inbuf_ptr), pointerof(inbytesleft), pointerof(outbuf_ptr), pointerof(outbytesleft))
+        if err == -1
+          iconv.handle_invalid(pointerof(inbuf_ptr), pointerof(inbytesleft))
+        end
+        io.write(outbuf.to_slice[0, outbuf.size - outbytesleft])
+      end
+    end
   end
 
   # Returns a new string with leading and trailing whitespace removed.
@@ -1601,7 +1639,7 @@ class String
 
   # ditto
   def +(char : Char)
-    bytes :: UInt8[4]
+    bytes = uninitialized UInt8[4]
 
     count = 0
     char.each_byte do |byte|
@@ -2129,7 +2167,7 @@ class String
   # Converts underscores to camelcase boundaries.
   #
   # ```
-  # "eiffel_tower".underscore # => "EiffelTower"
+  # "eiffel_tower".camelcase # => "EiffelTower"
   # ```
   def camelcase
     first = true
@@ -2199,7 +2237,7 @@ class String
   private def just(len, char, left)
     return self if size >= len
 
-    bytes :: UInt8[4]
+    bytes = uninitialized UInt8[4]
 
     if char.ord < 0x80
       count = 1
@@ -2639,7 +2677,7 @@ class String
       return to_unsafe[bytesize - 1] == char.ord
     end
 
-    bytes :: UInt8[4]
+    bytes = uninitialized UInt8[4]
 
     count = 0
     char.each_byte do |byte|
@@ -2730,7 +2768,7 @@ class String
   end
 
   def to_s(io)
-    io.write Slice.new(to_unsafe, bytesize)
+    io.write_utf8 Slice.new(to_unsafe, bytesize)
   end
 
   def to_unsafe
@@ -2743,6 +2781,14 @@ class String
 
   def unsafe_byte_slice(byte_offset)
     Slice.new(to_unsafe + byte_offset, bytesize - byte_offset)
+  end
+
+  # Raises an `ArgumentError` if `self` has null bytes. Returns `self` otherwise.
+  #
+  # This method should sometimes be called before passing a String to a C function.
+  def check_no_null_byte
+    raise ArgumentError.new("string contains null byte") if byte_index(0)
+    self
   end
 
   # :nodoc:

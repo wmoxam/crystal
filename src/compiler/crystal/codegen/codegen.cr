@@ -8,10 +8,12 @@ require "./llvm_builder_helper"
 LLVM.init_x86
 
 module Crystal
-  MAIN_NAME    = "__crystal_main"
-  RAISE_NAME   = "__crystal_raise"
-  MALLOC_NAME  = "__crystal_malloc"
-  REALLOC_NAME = "__crystal_realloc"
+  MAIN_NAME          = "__crystal_main"
+  RAISE_NAME         = "__crystal_raise"
+  MALLOC_NAME        = "__crystal_malloc"
+  REALLOC_NAME       = "__crystal_realloc"
+  PERSONALITY_NAME   = "__crystal_personality"
+  GET_EXCEPTION_NAME = "__crystal_get_exception"
 
   class Program
     def run(code, filename = nil)
@@ -58,9 +60,7 @@ module Crystal
   end
 
   class CodeGenVisitor < Visitor
-    PERSONALITY_NAME   = "__crystal_personality"
-    GET_EXCEPTION_NAME = "__crystal_get_exception"
-    SYMBOL_TABLE_NAME  = ":symbol_table"
+    SYMBOL_TABLE_NAME = ":symbol_table"
 
     include LLVMBuilderHelper
 
@@ -132,7 +132,7 @@ module Crystal
 
       @in_lib = false
       @strings = {} of StringKey => LLVM::Value
-      @symbols = {} of String    => Int32
+      @symbols = {} of String => Int32
       @symbol_table_values = [] of LLVM::Value
       mod.symbols.each_with_index do |sym, index|
         @symbols[sym] = index
@@ -179,13 +179,17 @@ module Crystal
       def initialize(@codegen)
       end
 
+      def visit(node : FileNode)
+        true
+      end
+
       def visit(node : Expressions)
         true
       end
 
       def visit(node : FunDef)
         case node.name
-        when MALLOC_NAME, REALLOC_NAME, RAISE_NAME
+        when MALLOC_NAME, REALLOC_NAME, RAISE_NAME, PERSONALITY_NAME, GET_EXCEPTION_NAME
           @codegen.accept node
         end
         false
@@ -258,6 +262,18 @@ module Crystal
           codegen_fun node.real_name, node.external, @mod, is_exported_fun: false
           @unused_fun_defs << node
         end
+      end
+
+      false
+    end
+
+    def visit(node : FileNode)
+      with_context(Context.new(context.fun, context.type)) do
+        file_module = @mod.file_module(node.filename)
+        if vars = file_module.vars?
+          alloca_vars vars, file_module
+        end
+        node.node.accept self
       end
 
       false
@@ -414,6 +430,12 @@ module Crystal
     def visit(node : Return)
       node_type = accept_control_expression(node)
 
+      codegen_return_node(node, node_type)
+
+      false
+    end
+
+    def codegen_return_node(node, node_type)
       old_last = @last
 
       execute_ensures_until(node.target as Def)
@@ -425,8 +447,6 @@ module Crystal
       else
         codegen_return node_type
       end
-
-      false
     end
 
     def codegen_return(type : NoReturnType | Nil)
@@ -630,20 +650,30 @@ module Crystal
       set_current_debug_location(node) if @debug
       node_type = accept_control_expression(node)
 
-      if next_phi = context.next_phi
-        old_last = @last
-        execute_ensures_until(node.target as Block)
-        @last = old_last
+      case target = node.target
+      when Block
+        if next_phi = context.next_phi
+          old_last = @last
+          execute_ensures_until(target as Block)
+          @last = old_last
 
-        next_phi.add @last, node_type
-      elsif while_block = context.while_block
-        execute_ensures_until(node.target as While)
-        br while_block
+          next_phi.add @last, node_type
+          return false
+        end
+      when While
+        if while_block = context.while_block
+          execute_ensures_until(target as While)
+          br while_block
+          return false
+        end
       else
-        node.raise "Bug: unknown exit for next"
+        # The only possibility is that we are in a captured block,
+        # so this is the same as a return
+        codegen_return_node(node, node_type)
+        return false
       end
 
-      false
+      node.raise "Bug: unknown exit for next"
     end
 
     def accept_control_expression(node)
@@ -782,7 +812,18 @@ module Crystal
       "#{node.owner}#{node.var.name.gsub('@', ':')}"
     end
 
-    def visit(node : DeclareVar)
+    def visit(node : TypeDeclaration)
+      var = node.var
+      if var.is_a?(Var)
+        declare_var var
+      end
+
+      @last = llvm_nil
+
+      false
+    end
+
+    def visit(node : UninitializedVar)
       var = node.var
       if var.is_a?(Var)
         declare_var var
@@ -895,7 +936,7 @@ module Crystal
     end
 
     def visit(node : IsA)
-      codegen_type_filter node, &.filter_by(node.const.type.instance_type)
+      codegen_type_filter node, &.filter_by(node.const.type)
     end
 
     def visit(node : RespondsTo)

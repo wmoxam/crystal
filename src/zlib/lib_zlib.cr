@@ -17,6 +17,9 @@ lib LibZ
   fun crc32(crc : ULong, buf : Bytef*, len : UInt) : ULong
   fun crc32_combine(crc1 : ULong, crc2 : ULong, len : Long) : ULong
 
+  alias AllocFunc = Void*, UInt, UInt -> Void*
+  alias FreeFunc = (Void*, Void*) ->
+
   struct ZStream
     next_in : Bytef*
     avail_in : UInt
@@ -26,8 +29,8 @@ lib LibZ
     total_out : ULong
     msg : Char*
     state : Void*
-    zalloc : Void*
-    zfree : Void*
+    zalloc : AllocFunc
+    zfree : FreeFunc
     opaque : Void*
     data_type : Int
     adler : Long
@@ -65,15 +68,17 @@ lib LibZ
   DEFAULT_COMPRESSION = -1
 
   # error codes
-  OK            =  0
-  STREAM_END    =  1
-  NEED_DICT     =  2
-  ERRNO         = -1
-  STREAM_ERROR  = -2
-  DATA_ERROR    = -3
-  MEM_ERROR     = -4
-  BUF_ERROR     = -5
-  VERSION_ERROR = -6
+  enum Error
+    OK            =  0
+    STREAM_END    =  1
+    NEED_DICT     =  2
+    ERRNO         = -1
+    STREAM_ERROR  = -2
+    DATA_ERROR    = -3
+    MEM_ERROR     = -4
+    BUF_ERROR     = -5
+    VERSION_ERROR = -6
+  end
 
   enum Flush
     NO_FLUSH      = 0
@@ -91,15 +96,15 @@ lib LibZ
 
   fun deflateInit2 = deflateInit2_(stream : ZStream*, level : Int32, method : Int32,
                                    window_bits : Int32, mem_level : Int32, strategy : Strategy,
-                                   version : UInt8*, stream_size : Int32) : Int32
-  fun deflate(stream : ZStream*, flush : Flush) : Int32
+                                   version : UInt8*, stream_size : Int32) : Error
+  fun deflate(stream : ZStream*, flush : Flush) : Error
   fun deflateEnd(stream : ZStream*) : Int32
   fun deflateReset(stream : ZStream*) : Int32
   fun deflateParams(stream : ZStream*, level : Int32, strategy : Strategy) : Int32
   fun deflateSetDictionary(stream : ZStream*, dictionary : UInt8*, len : UInt32) : Int32
 
-  fun inflateInit2 = inflateInit2_(stream : ZStream*, window_bits : Int32, version : UInt8*, stream_size : Int32) : Int32
-  fun inflate(stream : ZStream*, flush : Flush) : Int32
+  fun inflateInit2 = inflateInit2_(stream : ZStream*, window_bits : Int32, version : UInt8*, stream_size : Int32) : Error
+  fun inflate(stream : ZStream*, flush : Flush) : Error
   fun inflateEnd(stream : ZStream*) : Int32
   fun inflateReset(stream : ZStream*) : Int32
   fun inflateSetDictionary(stream : ZStream*, dictionary : UInt8*, len : UInt32) : Int32

@@ -17,6 +17,14 @@ private def home
   ENV["HOME"]
 end
 
+private def it_raises_on_null_byte(operation, &block)
+  it "errors on #{operation}" do
+    expect_raises(ArgumentError, "string contains null byte") do
+      block.call
+    end
+  end
+end
+
 describe "File" do
   it "gets path" do
     path = "#{__DIR__}/data/test_file.txt"
@@ -350,7 +358,7 @@ describe "File" do
     it "can write to a file" do
       filename = "#{__DIR__}/data/temp_write.txt"
       File.write(filename, "hello")
-      File.read(filename).strip.should eq("hello")
+      File.read(filename).should eq("hello")
       File.delete(filename)
     end
 
@@ -393,7 +401,7 @@ describe "File" do
     end
   end
 
-  describe "open with perm" do
+  it "opens with perm" do
     filename = "#{__DIR__}/data/temp_write.txt"
     perm = 0o600
     File.open(filename, "w", perm) do |file|
@@ -535,6 +543,153 @@ describe "File" do
           end
         end
       end
+    end
+  end
+
+  describe "raises on null byte" do
+    it_raises_on_null_byte "new" do
+      File.new("foo\0bar")
+    end
+
+    it_raises_on_null_byte "join" do
+      File.join("foo", "\0bar")
+    end
+
+    it_raises_on_null_byte "size" do
+      File.size("foo\0bar")
+    end
+
+    it_raises_on_null_byte "rename (first arg)" do
+      File.rename("foo\0bar", "baz")
+    end
+
+    it_raises_on_null_byte "rename (second arg)" do
+      File.rename("baz", "foo\0bar")
+    end
+
+    it_raises_on_null_byte "stat" do
+      File.stat("foo\0bar")
+    end
+
+    it_raises_on_null_byte "lstat" do
+      File.lstat("foo\0bar")
+    end
+
+    it_raises_on_null_byte "exists?" do
+      File.exists?("foo\0bar")
+    end
+
+    it_raises_on_null_byte "readable?" do
+      File.readable?("foo\0bar")
+    end
+
+    it_raises_on_null_byte "writable?" do
+      File.writable?("foo\0bar")
+    end
+
+    it_raises_on_null_byte "executable?" do
+      File.executable?("foo\0bar")
+    end
+
+    it_raises_on_null_byte "file?" do
+      File.file?("foo\0bar")
+    end
+
+    it_raises_on_null_byte "directory?" do
+      File.directory?("foo\0bar")
+    end
+
+    it_raises_on_null_byte "dirname" do
+      File.dirname("foo\0bar")
+    end
+
+    it_raises_on_null_byte "basename" do
+      File.basename("foo\0bar")
+    end
+
+    it_raises_on_null_byte "basename 2, first arg" do
+      File.basename("foo\0bar", "baz")
+    end
+
+    it_raises_on_null_byte "basename 2, second arg" do
+      File.basename("foobar", "baz\0")
+    end
+
+    it_raises_on_null_byte "delete" do
+      File.delete("foo\0bar")
+    end
+
+    it_raises_on_null_byte "extname" do
+      File.extname("foo\0bar")
+    end
+
+    it_raises_on_null_byte "expand_path, first arg" do
+      File.expand_path("foo\0bar")
+    end
+
+    it_raises_on_null_byte "expand_path, second arg" do
+      File.expand_path("baz", "foo\0bar")
+    end
+
+    it_raises_on_null_byte "link, first arg" do
+      File.link("foo\0bar", "baz")
+    end
+
+    it_raises_on_null_byte "link, second arg" do
+      File.link("baz", "foo\0bar")
+    end
+
+    it_raises_on_null_byte "symlink, first arg" do
+      File.symlink("foo\0bar", "baz")
+    end
+
+    it_raises_on_null_byte "symlink, second arg" do
+      File.symlink("baz", "foo\0bar")
+    end
+
+    it_raises_on_null_byte "symlink?" do
+      File.symlink?("foo\0bar")
+    end
+  end
+
+  describe "encoding" do
+    it "writes with encoding" do
+      filename = "#{__DIR__}/data/temp_write.txt"
+      File.write(filename, "hello", encoding: "UCS-2LE")
+      File.read(filename).to_slice.should eq("hello".encode("UCS-2LE"))
+      File.delete(filename)
+    end
+
+    it "reads with encoding" do
+      filename = "#{__DIR__}/data/temp_write.txt"
+      File.write(filename, "hello", encoding: "UCS-2LE")
+      File.read(filename, encoding: "UCS-2LE").should eq("hello")
+      File.delete(filename)
+    end
+
+    it "opens with encoding" do
+      filename = "#{__DIR__}/data/temp_write.txt"
+      File.write(filename, "hello", encoding: "UCS-2LE")
+      File.open(filename, encoding: "UCS-2LE") do |file|
+        file.gets_to_end.should eq("hello")
+      end
+      File.delete filename
+    end
+
+    it "does each line with encoding" do
+      filename = "#{__DIR__}/data/temp_write.txt"
+      File.write(filename, "hello", encoding: "UCS-2LE")
+      File.each_line(filename, encoding: "UCS-2LE") do |line|
+        line.should eq("hello")
+      end
+      File.delete filename
+    end
+
+    it "reads lines with encoding" do
+      filename = "#{__DIR__}/data/temp_write.txt"
+      File.write(filename, "hello", encoding: "UCS-2LE")
+      File.read_lines(filename, encoding: "UCS-2LE").should eq(["hello"])
+      File.delete filename
     end
   end
 end

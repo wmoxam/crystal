@@ -312,20 +312,20 @@ struct Int
 
     case self
     when 0
-      io.write_byte '0'.ord.to_u8
+      io << '0'
       return
     when 1
-      io.write_byte '1'.ord.to_u8
+      io << '1'
       return
     end
 
     internal_to_s(base, upcase) do |ptr, count|
-      io.write Slice.new(ptr, count)
+      io.write_utf8 Slice.new(ptr, count)
     end
   end
 
   private def internal_to_s(base, upcase = false)
-    chars :: UInt8[65]
+    chars = uninitialized UInt8[65]
     ptr_end = chars.to_unsafe + 64
     ptr = ptr_end
     num = self
@@ -366,8 +366,8 @@ struct Int
   # Counts `1`-bits in the binary representation of this integer.
   #
   # ```
-  # 5.popcount    #=> 2
-  # -15.popcount  #=> 5
+  # 5.popcount   # => 2
+  # -15.popcount # => 5
   # ```
   abstract def popcount
 

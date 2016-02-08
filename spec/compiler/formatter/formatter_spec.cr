@@ -377,18 +377,23 @@ describe Crystal::Formatter do
   assert_format "include  Foo", "include Foo"
   assert_format "extend  Foo", "extend Foo"
 
-  assert_format "x  ::  Int32", "x :: Int32"
-  assert_format "x  ::  Int32*", "x :: Int32*"
-  assert_format "x  ::  Int32**", "x :: Int32**"
-  assert_format "x  ::  A  |  B", "x :: A | B"
-  assert_format "x  ::  A?", "x :: A?"
-  assert_format "x  ::  Int32[ 8 ]", "x :: Int32[8]"
-  assert_format "x  ::  (A | B)", "x :: (A | B)"
-  assert_format "x  ::  (A -> B)", "x :: (A -> B)"
-  assert_format "x  ::  (A -> B)?", "x :: (A -> B)?"
-  assert_format "x  ::  {A, B}", "x :: {A, B}"
-  assert_format "class Foo\n@x :: Int32\nend", "class Foo\n  @x :: Int32\nend"
+  assert_format "x  :   Int32", "x : Int32"
+  assert_format "x  :   Int32*", "x : Int32*"
+  assert_format "x  :   Int32**", "x : Int32**"
+  assert_format "x  :   A  |  B", "x : A | B"
+  assert_format "x  :   A?", "x : A?"
+  assert_format "x  :   Int32[ 8 ]", "x : Int32[8]"
+  assert_format "x  :   (A | B)", "x : (A | B)"
+  assert_format "x  :   (A -> B)", "x : (A -> B)"
+  assert_format "x  :   (A -> B)?", "x : (A -> B)?"
+  assert_format "x  :   {A, B}", "x : {A, B}"
+  assert_format "class Foo\n@x  : Int32\nend", "class Foo\n  @x : Int32\nend"
+  assert_format "class Foo\n@x  :  Int32\nend", "class Foo\n  @x : Int32\nend"
   assert_format "class Foo\nx = 1\nend", "class Foo\n  x = 1\nend"
+  assert_format "x  =   uninitialized   Int32", "x = uninitialized Int32"
+
+  assert_format "def foo\n@x  :  Int32\nend", "def foo\n  @x : Int32\nend"
+  assert_format "def foo\n@x   =  uninitialized   Int32\nend", "def foo\n  @x = uninitialized Int32\nend"
 
   assert_format "x = 1\nx    +=   1", "x = 1\nx += 1"
   assert_format "x[ y ] += 1", "x[y] += 1"
@@ -770,4 +775,12 @@ describe Crystal::Formatter do
   assert_format "return 1\n# end"
   assert_format "case\n# hello\nwhen 1\n  2\nend"
   assert_format "case 1\nwhen 2 # a\n  # b\nend"
+
+  assert_format "{} of A => B\n{} of Foo => Bar"
+
+  assert_format "<<-HTML\n  \#{1}x\n  HTML"
+  assert_format "<<-HTML\n  \#{1}x\n  y\n  HTML"
+  assert_format "<<-HTML\n  \#{1}x\n  y\n  z\n  HTML"
+
+  assert_format "#!shebang\n1 + 2"
 end

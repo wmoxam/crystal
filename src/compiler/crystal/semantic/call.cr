@@ -17,6 +17,9 @@ class Crystal::Call
   getter? uses_with_scope
   @uses_with_scope = false
 
+  property? raises
+  @raises = false
+
   def mod
     scope.program
   end
@@ -86,6 +89,7 @@ class Crystal::Call
 
     if (parent_visitor = @parent_visitor) && matches
       if parent_visitor.typed_def? && matches.any?(&.raises)
+        @raises = true
         parent_visitor.typed_def.raises = true
       end
 
@@ -308,7 +312,7 @@ class Crystal::Call
 
   def lookup_matches_with_signature(owner : Program, signature, search_in_parents)
     location = self.location
-    if location && (filename = location.filename).is_a?(String)
+    if location && (filename = location.original_filename)
       matches = owner.lookup_private_matches filename, signature
     end
 
@@ -623,7 +627,7 @@ class Crystal::Call
 
     macros ||= yield mod
 
-    if !macros && (location = self.location) && (filename = location.original_filename).is_a?(String) && (file_module = mod.file_module(filename))
+    if !macros && (location = self.location) && (filename = location.original_filename).is_a?(String) && (file_module = mod.file_module?(filename))
       macros ||= yield file_module
     end
 
@@ -702,7 +706,10 @@ class Crystal::Call
             raise "wrong number of block arguments (#{block.args.size} for #{fun_args.size})"
           end
 
-          fun_literal = FunLiteral.new(Def.new("->", fun_args, block.body))
+          a_def = Def.new("->", fun_args, block.body)
+          a_def.captured_block = true
+
+          fun_literal = FunLiteral.new(a_def)
           fun_literal.force_void = true unless block_arg_restriction_output
           fun_literal.accept parent_visitor
         end
@@ -902,7 +909,7 @@ class Crystal::Call
     # named arguments, we create another def that sets ups everything for the real call.
     if arg_types.size != untyped_def.args.size || untyped_def.splat_index || named_args
       named_args_names = named_args.try &.map &.name
-      untyped_def = untyped_def.expand_default_arguments(arg_types.size, named_args_names)
+      untyped_def = untyped_def.expand_default_arguments(mod, arg_types.size, named_args_names)
     end
 
     args_start_index = 0
@@ -987,5 +994,15 @@ class Crystal::Call
 
   def detach_subclass_observer
     @subclass_notifier.try &.remove_subclass_observer(self)
+  end
+
+  def raises=(value)
+    if @raises != value
+      @raises = value
+      typed_def = parent_visitor.typed_def?
+      if typed_def
+        typed_def.raises = value
+      end
+    end
   end
 end

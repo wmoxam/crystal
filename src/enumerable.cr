@@ -277,14 +277,14 @@ module Enumerable(T)
   #     [1, 2, 3].in_groups_of(2, 0) #=> [[1, 2], [3, 0]]
   #     [1, 2, 3].in_groups_of(2) #=> [[1, 2], [3, nil]]
   #
-  def in_groups_of(size : Int, filled_up_with = nil)
+  def in_groups_of(size : Int, filled_up_with = nil : U)
     raise ArgumentError.new("size must be positive") if size <= 0
 
     # TODO: this consumes the enumerable twice, fix
     parts_count = (self.size.to_f / size).ceil.to_i
-    ary = Array(Array(T | typeof(filled_up_with))).new(parts_count)
+    ary = Array(Array(T | U)).new(parts_count)
     parts_count.times do |i|
-      ary << Array(T | typeof(filled_up_with)).new(size, filled_up_with)
+      ary << Array(T | U).new(size, filled_up_with)
     end
 
     each_with_index do |e, i|
@@ -300,9 +300,9 @@ module Enumerable(T)
   #     #=> 3
   #     #=> 4
   #
-  def in_groups_of(size : Int, filled_up_with = nil)
+  def in_groups_of(size : Int, filled_up_with = nil : U)
     raise ArgumentError.new("size must be positive") if size <= 0
-    ary = Array(T | typeof(filled_up_with)).new(size, filled_up_with)
+    ary = Array(T | U).new(size, filled_up_with)
 
     # TODO: this consumes the enumerable twice, fix
     count = self.size
@@ -311,7 +311,7 @@ module Enumerable(T)
       ary[i % size] = e
       if i % size == size - 1 || i == count - 1
         yield ary
-        ary = Array(T | typeof(filled_up_with)).new(size, filled_up_with)
+        ary = Array(T | U).new(size, filled_up_with)
       end
     end
   end
@@ -366,20 +366,21 @@ module Enumerable(T)
     hash
   end
 
-  # Combines all elements in the collection by applying a binary operation, specified by a block.
+  # Combines all elements in the collection by applying a binary operation, specified by a block, so as
+  # to reduce them to a single value.
   #
   # For each element in the collection the block is passed an accumulator value (*memo*) and the element. The
   # result becomes the new value for *memo*. At the end of the iteration, the final value of *memo* is
   # the return value for the method. The initial value for the accumulator is the first element in the collection.
   #
-  #     [1, 2, 3, 4, 5].inject { |acc, i| acc + i }  #=> 15
+  #     [1, 2, 3, 4, 5].reduce { |acc, i| acc + i }  #=> 15
   #
-  def inject
-    memo :: T
+  def reduce
+    memo = uninitialized T
     found = false
 
-    each_with_index do |elem, i|
-      memo = i == 0 ? elem : yield memo, elem
+    each do |elem|
+      memo = found ? (yield memo, elem) : elem
       found = true
     end
 
@@ -388,9 +389,9 @@ module Enumerable(T)
 
   # Just like the other variant, but you can set the initial value of the accumulator.
   #
-  #     [1, 2, 3, 4, 5].inject(10) { |acc, i| acc + i }  #=> 25
+  #     [1, 2, 3, 4, 5].reduce(10) { |acc, i| acc + i }  #=> 25
   #
-  def inject(memo)
+  def reduce(memo)
     each do |elem|
       memo = yield memo, elem
     end
@@ -506,8 +507,8 @@ module Enumerable(T)
   end
 
   private def max_by_internal(&block : T -> U)
-    max :: U
-    obj :: T
+    max = uninitialized U
+    obj = uninitialized T
     found = false
 
     each_with_index do |elem, i|
@@ -539,7 +540,7 @@ module Enumerable(T)
   end
 
   private def max_of_internal(&block : T -> U)
-    max :: U
+    max = uninitialized U
     found = false
 
     each_with_index do |elem, i|
@@ -590,8 +591,8 @@ module Enumerable(T)
   end
 
   private def min_by_internal(&block : T -> U)
-    min :: U
-    obj :: T
+    min = uninitialized U
+    obj = uninitialized T
     found = false
 
     each_with_index do |elem, i|
@@ -623,7 +624,7 @@ module Enumerable(T)
   end
 
   private def min_of_internal(&block : T -> U)
-    min :: U
+    min = uninitialized U
     found = false
 
     each_with_index do |elem, i|
@@ -669,10 +670,10 @@ module Enumerable(T)
   end
 
   private def minmax_by_internal(&block : T -> U)
-    min :: U
-    max :: U
-    objmin :: T
-    objmax :: T
+    min = uninitialized U
+    max = uninitialized U
+    objmin = uninitialized T
+    objmax = uninitialized T
     found = false
 
     each_with_index do |elem, i|
@@ -710,8 +711,8 @@ module Enumerable(T)
   end
 
   private def minmax_of_internal(&block : T -> U)
-    min :: U
-    max :: U
+    min = uninitialized U
+    max = uninitialized U
     found = false
 
     each_with_index do |elem, i|
@@ -880,7 +881,7 @@ module Enumerable(T)
   #
   #     ([] of String).sum(1) { |name| name.size } #=> 1
   def sum(initial, &block)
-    inject(initial) { |memo, e| memo + (yield e) }
+    reduce(initial) { |memo, e| memo + (yield e) }
   end
 
   # Returns an array with the first *count* elements in the collection.

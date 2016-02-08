@@ -1280,4 +1280,55 @@ describe "Code gen: block" do
       $x
       )).to_i.should eq(1)
   end
+
+  it "returns from proc literal" do
+    run(%(
+      foo = ->{
+        if 1 == 1
+          return 10
+        end
+
+        20
+      }
+
+      foo.call
+      )).to_i.should eq(10)
+  end
+
+  it "does next from captured block" do
+    run(%(
+      def foo(&block : -> T)
+        block
+      end
+
+      f = foo do
+        if 1 == 1
+          next 10
+        end
+
+        next 20
+      end
+
+      f.call
+      )).to_i.should eq(10)
+  end
+
+  it "codegens captured block with next inside yielded block (#2097)" do
+    run(%(
+      def foo
+        yield
+      end
+
+      def bar(&block : -> Int32)
+        block
+      end
+
+      foo do
+        block = bar do
+          next 123
+        end
+        block.call
+      end
+      )).to_i.should eq(123)
+  end
 end

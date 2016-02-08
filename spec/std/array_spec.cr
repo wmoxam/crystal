@@ -370,6 +370,16 @@ describe "Array" do
       a.concat((4..1000))
       a.should eq((1..1000).to_a)
     end
+
+    it "concats enumerable to empty array (#2047)" do
+      a = [] of Int32
+      a.concat(1..1)
+      a.@capacity.should eq(3)
+
+      a = [] of Int32
+      a.concat(1..4)
+      a.@capacity.should eq(6)
+    end
   end
 
   describe "delete" do
@@ -717,21 +727,28 @@ describe "Array" do
   end
 
   describe "push" do
-    it "adds one element to the array" do
-      a = ["a", "b"]
-      a.push("c")
-      a.should eq ["a", "b", "c"]
+    it "pushes one element" do
+      a = [1, 2]
+      a.push(3).should be(a)
+      a.should eq [1, 2, 3]
     end
 
-    it "returns the array" do
-      a = ["a", "b"]
-      a.push("c").should eq ["a", "b", "c"]
+    it "pushes multiple elements" do
+      a = [1, 2]
+      a.push(3, 4).should be(a)
+      a.should eq [1, 2, 3, 4]
+    end
+
+    it "pushes multiple elements to an empty array" do
+      a = [] of Int32
+      a.push(1, 2, 3).should be(a)
+      a.should eq([1, 2, 3])
     end
 
     it "has the << alias" do
-      a = ["a", "b"]
-      a << "c"
-      a.should eq ["a", "b", "c"]
+      a = [1, 2]
+      a << 3
+      a.should eq [1, 2, 3]
     end
   end
 
@@ -1049,11 +1066,24 @@ describe "Array" do
     end
   end
 
-  it "does unshift" do
-    a = [2, 3]
-    expected = [1, 2, 3]
-    a.unshift(1).should eq(expected)
-    a.should eq(expected)
+  describe "unshift" do
+    it "unshifts one element" do
+      a = [1, 2]
+      a.unshift(3).should be(a)
+      a.should eq [3, 1, 2]
+    end
+
+    it "unshifts multiple elements" do
+      a = [1, 2]
+      a.unshift(3, 4).should be(a)
+      a.should eq [3, 4, 1, 2]
+    end
+
+    it "unshifts multiple elements to an empty array" do
+      a = [] of Int32
+      a.unshift(1, 2, 3).should be(a)
+      a.should eq([1, 2, 3])
+    end
   end
 
   it "does update" do

@@ -19,5 +19,17 @@ module Zlib
       str.should eq("this is a test string !!!!\n")
       inflate.read(Slice(UInt8).new(10)).should eq(0)
     end
+
+    it "can be closed" do
+      io = MemoryIO.new("")
+      inflate = Inflate.new(io)
+      inflate.close
+      io.closed?.should be_true
+      inflate.closed?.should be_true
+
+      expect_raises IO::Error, "closed stream" do
+        inflate.gets
+      end
+    end
   end
 end

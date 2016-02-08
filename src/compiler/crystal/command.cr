@@ -9,33 +9,32 @@ end
 
 class Crystal::Command
   USAGE = <<-USAGE
-Usage: crystal [command] [switches] [program file] [--] [arguments]
+    Usage: crystal [command] [switches] [program file] [--] [arguments]
 
-Command:
-    init                     generate a new project
-    build                    compile program
-    deps                     install project dependencies
-    docs                     generate documentation
-    eval                     eval code from args or standard input
-    run (default)            compile and run program
-    spec                     compile and run specs (in spec directory)
-    tool                     run a tool
-    help, --help, -h         show this help
-    version, --version, -v   show version
-USAGE
+    Command:
+        init                     generate a new project
+        build                    compile program
+        deps                     install project dependencies
+        docs                     generate documentation
+        eval                     eval code from args or standard input
+        run (default)            compile and run program
+        spec                     compile and run specs (in spec directory)
+        tool                     run a tool
+        help, --help, -h         show this help
+        version, --version, -v   show version
+    USAGE
 
   COMMANDS_USAGE = <<-USAGE
-Usage: crystal tool [tool] [switches] [program file] [--] [arguments]
+    Usage: crystal tool [tool] [switches] [program file] [--] [arguments]
 
-Tool:
-    browser                  open an http server to browse program file
-    context                  show context for given location
-    format                   format project, directories and/or files
-    hierarchy                show type hierarchy
-    implementations          show implementations for given call in location
-    types                    show type of main variables
-    --help, -h               show this help
-USAGE
+    Tool:
+        context                  show context for given location
+        format                   format project, directories and/or files
+        hierarchy                show type hierarchy
+        implementations          show implementations for given call in location
+        types                    show type of main variables
+        --help, -h               show this help
+    USAGE
 
   VALID_EMIT_VALUES = %w(asm llvm-bc llvm-ir obj)
 
@@ -116,9 +115,6 @@ USAGE
     tool = options.first?
     if tool
       case
-      when "browser".starts_with?(tool)
-        options.shift
-        browser
       when "context".starts_with?(tool)
         options.shift
         context
@@ -153,11 +149,6 @@ USAGE
   private def build
     config = create_compiler "build"
     config.compile
-  end
-
-  private def browser
-    config, result = compile_no_codegen "tool browser"
-    Browser.open result.original_node
   end
 
   private def eval
@@ -437,7 +428,13 @@ USAGE
 
   private def execute(output_filename, run_args)
     begin
-      status = Process.run(output_filename, args: run_args, input: true, output: true, error: true)
+      Process.run(output_filename, args: run_args, input: true, output: true, error: true) do |process|
+        Signal::INT.trap do
+          process.kill
+          exit
+        end
+      end
+      status = $?
     ensure
       File.delete output_filename
     end

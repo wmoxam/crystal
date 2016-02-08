@@ -54,6 +54,7 @@ module Crystal
       @def_indent = 0
       @last_write = ""
       @exp_needs_indent = true
+      @inside_def = 0
 
       # This stores the column number (if any) of each comment in every line
       @when_infos = [] of AlignInfo
@@ -62,6 +63,11 @@ module Crystal
       @doc_comments = [] of CommentInfo
       @current_doc_comment = nil
       @hash_in_same_line = Set(typeof(object_id)).new
+      @shebang = @token.type == :COMMENT && @token.value.to_s.starts_with?("#!")
+    end
+
+    def visit(node : FileNode)
+      true
     end
 
     def visit(node : Expressions)
@@ -394,6 +400,8 @@ module Crystal
           end
           next_string_token
         else
+          skip_strings
+
           check :INTERPOLATION_START
           write "\#{"
           delimiter_state = @token.delimiter_state
@@ -407,12 +415,23 @@ module Crystal
         end
       end
 
+      skip_strings
+
       check :DELIMITER_END
       write @token.raw
       format_regex_modifiers if is_regex
       next_token
 
       false
+    end
+
+    private def skip_strings
+      # Heredocs might indice some spaces that are removed
+      # because of indentation
+      while @token.type == :STRING
+        write @token.raw
+        next_string_token
+      end
     end
 
     def visit(node : RegexLiteral)
@@ -699,7 +718,7 @@ module Crystal
         last_info = @hash_infos.last?
         if last_info && last_info.line == @line
           found_in_same_line = true
-        else
+        elsif hash
           number = key.is_a?(NumberLiteral)
           @hash_infos << AlignInfo.new(hash.object_id, @line, start_column, middle_column, end_column, number)
         end
@@ -1019,6 +1038,7 @@ module Crystal
 
     def visit(node : Def)
       @def_indent = @indent
+      @inside_def += 1
 
       if node.abstract
         write_keyword :abstract, " "
@@ -1060,27 +1080,27 @@ module Crystal
 
       if node.macro_def?
         format_macro_body node
-
-        return false
-      end
-
-      body = node.body
-
-      if to_skip > 0
+      else
         body = node.body
-        if body.is_a?(Expressions)
-          body.expressions = body.expressions[to_skip..-1]
-          if body.expressions.empty?
+
+        if to_skip > 0
+          body = node.body
+          if body.is_a?(Expressions)
+            body.expressions = body.expressions[to_skip..-1]
+            if body.expressions.empty?
+              body = Nop.new
+            end
+          else
             body = Nop.new
           end
-        else
-          body = Nop.new
+        end
+
+        unless node.abstract
+          format_nested_with_end body
         end
       end
 
-      unless node.abstract
-        format_nested_with_end body
-      end
+      @inside_def -= 1
 
       false
     end
@@ -2484,13 +2504,25 @@ module Crystal
       false
     end
 
-    def visit(node : DeclareVar)
+    def visit(node : TypeDeclaration)
       accept node.var
       skip_space_or_newline
-      write_token " ", :"::", " "
-      skip_space_or_newline
+      check :":"
+      next_token_skip_space_or_newline
+      write " : "
       accept node.declared_type
 
+      false
+    end
+
+    def visit(node : UninitializedVar)
+      accept node.var
+      skip_space_or_newline
+      write_token " ", :"=", " "
+      skip_space_or_newline
+      write_keyword :"uninitialized", " "
+      skip_space_or_newline
+      accept node.declared_type
       false
     end
 
@@ -3532,6 +3564,9 @@ module Crystal
       lines.map!(&.rstrip)
       result = lines.join("\n") + '\n'
       result = "" if result == "\n"
+      if @shebang
+        result = result[0] + result[2..-1]
+      end
       result
     end
 
