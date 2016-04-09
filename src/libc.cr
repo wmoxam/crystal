@@ -65,8 +65,7 @@ lib LibC
 
   ifdef darwin || openbsd
     MAP_ANON = 0x1000
-  end
-  ifdef linux
+  else # linux
     MAP_ANON = 0x0020
   end
 

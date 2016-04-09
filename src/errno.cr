@@ -314,7 +314,7 @@ class Errno < Exception
       else
         LibC.errno
       end
-    elsif darwin
+    else # darwin, openbsd
       LibC.__error.value
     end
   end
@@ -327,7 +327,7 @@ class Errno < Exception
       else
         LibC.errno = value
       end
-    elsif darwin
+    else # darwin, openbsd
       LibC.__error.value = value
     end
   end

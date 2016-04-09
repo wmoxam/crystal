@@ -569,7 +569,7 @@ struct Time
   def self.local_offset_in_minutes
     ifdef linux
       -LibC.timezone.to_i32 / 60
-    else
+    else # darwin, openbsd
       if LibC.gettimeofday(nil, out tzp) != 0
         raise Errno.new("gettimeofday")
       end
@@ -598,7 +598,7 @@ struct Time
 
     ifdef linux
       tz = LibC.timezone.to_i64 / 60
-    else
+    else # darwin, openbsd
       tz = tzp.tz_minuteswest.to_i64
     end
 

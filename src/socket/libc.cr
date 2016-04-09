@@ -184,7 +184,7 @@ lib LibC
 
   ifdef linux
     SOCK_CLOEXEC = 0o2000000
-  else
+  else # darwin, openbsd
     SOCK_CLOEXEC = 0 # workaround in init_close_on_exec
   end
 
