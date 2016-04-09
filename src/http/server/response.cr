@@ -16,21 +16,27 @@ class HTTP::Server
     include IO
 
     # The response headers (`HTTP::Headers`). These must be set before writing to the response.
-    getter headers
+    getter headers : HTTP::Headers
 
     # The version of the HTTP::Request that created this response.
-    getter version
+    getter version : String
 
     # The `IO` to which output is written. This can be changed/wrapped to filter
     # the response body (for example to compress the output).
-    property output
+    property output : IO
 
     # :nodoc:
-    setter version
+    setter version : String
 
     # The status code of this response, which must be set before writing the response
     # body. If not set, the default value is 200 (OK).
-    property status_code
+    property status_code : Int32
+
+    @io : IO
+    @wrote_headers : Bool
+    @upgraded : Bool
+    @original_output : Output
+    @cookies : HTTP::Cookies?
 
     # :nodoc:
     def initialize(@io, @version = "HTTP/1.1")
@@ -45,6 +51,7 @@ class HTTP::Server
     # :nodoc:
     def reset
       @headers.clear
+      @cookies = nil
       @status_code = 200
       @wrote_headers = false
       @upgraded = false
@@ -65,6 +72,11 @@ class HTTP::Server
     # See `IO#write(slice)`.
     def write(slice : Slice(UInt8))
       @output.write(slice)
+    end
+
+    # Convenience method to set cookies, see `HTTP::Cookies`.
+    def cookies
+      @cookies ||= HTTP::Cookies.new
     end
 
     # :nodoc:
@@ -114,17 +126,20 @@ class HTTP::Server
       @wrote_headers
     end
 
+    protected def has_cookies?
+      !@cookies.nil?
+    end
+
     # :nodoc:
     class Output
       include IO::Buffered
 
-      property! response
+      property! response : Response
+
+      @chunked : Bool
+      @io : IO
 
       def initialize(@io)
-        @in_buffer_rem = Slice.new(Pointer(UInt8).null, 0)
-        @out_count = 0
-        @sync = false
-        @flush_on_newline = false
         @chunked = false
       end
 
@@ -146,8 +161,9 @@ class HTTP::Server
             response.headers["Transfer-Encoding"] = "chunked"
             @chunked = true
           end
-          response.write_headers
         end
+
+        ensure_headers_written
 
         if @chunked
           slice.size.to_s(16, @io)
@@ -162,9 +178,21 @@ class HTTP::Server
       def close
         unless response.wrote_headers?
           response.content_length = @out_count
+        end
+
+        ensure_headers_written
+
+        super
+      end
+
+      private def ensure_headers_written
+        unless response.wrote_headers?
+          if response.has_cookies?
+            response.cookies.add_response_headers(response.headers)
+          end
+
           response.write_headers
         end
-        super
       end
 
       private def unbuffered_close

@@ -798,6 +798,49 @@ describe "String" do
     it "subs using $~" do
       "foo".sub(/(o)/) { "x#{$1}x" }.should eq("fxoxo")
     end
+
+    it "subs using with \\" do
+      "foo".sub(/(o)/, "\\").should eq("f\\o")
+    end
+
+    it "subs using with z\\w" do
+      "foo".sub(/(o)/, "z\\w").should eq("fz\\wo")
+    end
+
+    it "replaces with numeric back-reference" do
+      "foo".sub(/o/, "x\\0x").should eq("fxoxo")
+      "foo".sub(/(o)/, "x\\1x").should eq("fxoxo")
+      "foo".sub(/(o)/, "\\\\1").should eq("f\\1o")
+      "hello".sub(/[aeiou]/, "(\\0)").should eq("h(e)llo")
+    end
+
+    it "replaces with incomplete named back-reference (1)" do
+      "foo".sub(/(oo)/, "|\\k|").should eq("f|\\k|")
+    end
+
+    it "replaces with incomplete named back-reference (2)" do
+      "foo".sub(/(oo)/, "|\\k\\1|").should eq("f|\\koo|")
+    end
+
+    it "replaces with named back-reference" do
+      "foo".sub(/(?<bar>oo)/, "|\\k<bar>|").should eq("f|oo|")
+    end
+
+    it "replaces with multiple named back-reference" do
+      "fooxx".sub(/(?<bar>oo)(?<baz>x+)/, "|\\k<bar>|\\k<baz>|").should eq("f|oo|xx|")
+    end
+
+    it "replaces with \\a" do
+      "foo".sub(/(oo)/, "|\\a|").should eq("f|\\a|")
+    end
+
+    it "replaces with \\\\\\1" do
+      "foo".sub(/(oo)/, "|\\\\\\1|").should eq("f|\\oo|")
+    end
+
+    it "ignores if backreferences: false" do
+      "foo".sub(/o/, "x\\0x", backreferences: false).should eq("fx\\0xo")
+    end
   end
 
   describe "gsub" do
@@ -905,6 +948,62 @@ describe "String" do
 
     it "gsubs using $~" do
       "foo".gsub(/(o)/) { "x#{$1}x" }.should eq("fxoxxox")
+    end
+
+    it "replaces with numeric back-reference" do
+      "foo".gsub(/o/, "x\\0x").should eq("fxoxxox")
+      "foo".gsub(/(o)/, "x\\1x").should eq("fxoxxox")
+      "foo".gsub(/(ここ)|(oo)/, "x\\1\\2x").should eq("fxoox")
+    end
+
+    it "replaces with named back-reference" do
+      "foo".gsub(/(?<bar>oo)/, "|\\k<bar>|").should eq("f|oo|")
+      "foo".gsub(/(?<x>ここ)|(?<bar>oo)/, "|\\k<bar>|").should eq("f|oo|")
+    end
+
+    it "replaces with incomplete back-reference (1)" do
+      "foo".gsub(/o/, "\\").should eq("f\\\\")
+    end
+
+    it "replaces with incomplete back-reference (2)" do
+      "foo".gsub(/o/, "\\\\").should eq("f\\\\")
+    end
+
+    it "replaces with incomplete back-reference (3)" do
+      "foo".gsub(/o/, "\\k").should eq("f\\k\\k")
+    end
+
+    it "raises with incomplete back-reference (1)" do
+      expect_raises(ArgumentError) do
+        "foo".gsub(/(?<bar>oo)/, "|\\k<bar|")
+      end
+    end
+
+    it "raises with incomplete back-reference (2)" do
+      expect_raises(ArgumentError, "missing ending '>' for '\\\\k<...") do
+        "foo".gsub(/o/, "\\k<")
+      end
+    end
+
+    it "replaces with back-reference to missing capture group" do
+      "foo".gsub(/o/, "\\1").should eq("f")
+
+      expect_raises(IndexError, "undefined group name reference: \"bar\"") do
+        "foo".gsub(/o/, "\\k<bar>").should eq("f")
+      end
+
+      expect_raises(IndexError, "undefined group name reference: \"\"") do
+        "foo".gsub(/o/, "\\k<>")
+      end
+    end
+
+    it "replaces with escaped back-reference" do
+      "foo".gsub(/o/, "\\\\0").should eq("f\\0\\0")
+      "foo".gsub(/oo/, "\\\\k<bar>").should eq("f\\k<bar>")
+    end
+
+    it "ignores if backreferences: false" do
+      "foo".gsub(/o/, "x\\0x", backreferences: false).should eq("fx\\0xx\\0x")
     end
   end
 
@@ -1025,6 +1124,11 @@ describe "String" do
     ("%-s" % 'a').should eq("a")
     ("%20s" % 'a').should eq("                   a")
     ("%-20s" % 'a').should eq("a                   ")
+    ("%*s" % [10, 123]).should eq("       123")
+    ("%.5s" % "foo bar baz").should eq("foo b")
+    ("%.*s" % [5, "foo bar baz"]).should eq("foo b")
+    ("%*.*s" % [20, 5, "foo bar baz"]).should eq("               foo b")
+    ("%-*.*s" % [20, 5, "foo bar baz"]).should eq("foo b               ")
 
     ("%%%d" % 1).should eq("%1")
     ("foo %d bar %s baz %d goo" % [1, "hello", 2]).should eq("foo 1 bar hello baz 2 goo")
@@ -1071,6 +1175,8 @@ describe "String" do
     ("%.f" % 1234.56).should eq("1235")
     ("%.2f" % 1234.5678).should eq("1234.57")
     ("%10.2f" % 1234.5678).should eq("   1234.57")
+    ("%*.2f" % [10, 1234.5678]).should eq("   1234.57")
+    ("%0*.2f" % [10, 1234.5678]).should eq("0001234.57")
     ("%e" % 123.45).should eq("1.234500e+02")
     ("%E" % 123.45).should eq("1.234500E+02")
     ("%G" % 12345678.45).should eq("1.23457E+07")
@@ -1078,7 +1184,14 @@ describe "String" do
     ("%A" % 12345678.45).should eq("0X1.78C29CE666666P+23")
     ("%100.50g" % 123.45).should eq("                                                  123.4500000000000028421709430404007434844970703125")
 
+    span = 1.second
+    ("%s" % span).should eq(span.to_s)
+
     ("%.2f" % 2.536_f32).should eq("2.54")
+    ("%0*.*f" % [10, 2, 2.536_f32]).should eq("0000002.54")
+    expect_raises(ArgumentError, "expected dynamic value '*' to be an Int - \"not a number\" (String)") do
+      "%*f" % ["not a number", 2.536_f32]
+    end
   end
 
   it "escapes chars" do
@@ -1414,7 +1527,7 @@ describe "String" do
   end
 
   it "cycles chars" do
-    "abc".each_char.cycle.take(8).join.should eq("abcabcab")
+    "abc".each_char.cycle.first(8).join.should eq("abcabcab")
   end
 
   it "gets each_byte iterator" do
@@ -1429,7 +1542,7 @@ describe "String" do
   end
 
   it "cycles bytes" do
-    "abc".each_byte.cycle.take(8).join.should eq("9798999798999798")
+    "abc".each_byte.cycle.first(8).join.should eq("9798999798999798")
   end
 
   it "gets lines" do
@@ -1493,6 +1606,24 @@ describe "String" do
       "これ".char_index_to_byte_index(1).should eq(3)
       "これ".char_index_to_byte_index(2).should eq(6)
       "これ".char_index_to_byte_index(3).should be_nil
+    end
+  end
+
+  describe "byte_index_to_char_index" do
+    it "with ascii" do
+      "foo".byte_index_to_char_index(0).should eq(0)
+      "foo".byte_index_to_char_index(1).should eq(1)
+      "foo".byte_index_to_char_index(2).should eq(2)
+      "foo".byte_index_to_char_index(3).should eq(3)
+      "foo".byte_index_to_char_index(4).should be_nil
+    end
+
+    it "with utf-8" do
+      "これ".byte_index_to_char_index(0).should eq(0)
+      "これ".byte_index_to_char_index(3).should eq(1)
+      "これ".byte_index_to_char_index(6).should eq(2)
+      "これ".byte_index_to_char_index(7).should be_nil
+      "これ".byte_index_to_char_index(1).should be_nil
     end
   end
 
@@ -1627,5 +1758,36 @@ describe "String" do
       bytes = Slice.new(bytes.to_unsafe, bytes.size)
       String.new(bytes, "GB2312", invalid: :skip).should eq("好是")
     end
+  end
+
+  it "inserts" do
+    "bar".insert(0, "foo").should eq("foobar")
+    "bar".insert(1, "foo").should eq("bfooar")
+    "bar".insert(2, "foo").should eq("bafoor")
+    "bar".insert(3, "foo").should eq("barfoo")
+
+    "bar".insert(-1, "foo").should eq("barfoo")
+    "bar".insert(-2, "foo").should eq("bafoor")
+
+    "ともだち".insert(0, "ねこ").should eq("ねこともだち")
+    "ともだち".insert(1, "ねこ").should eq("とねこもだち")
+    "ともだち".insert(2, "ねこ").should eq("ともねこだち")
+    "ともだち".insert(4, "ねこ").should eq("ともだちねこ")
+
+    "ともだち".insert(0, 'ね').should eq("ねともだち")
+    "ともだち".insert(1, 'ね').should eq("とねもだち")
+    "ともだち".insert(2, 'ね').should eq("ともねだち")
+    "ともだち".insert(4, 'ね').should eq("ともだちね")
+
+    "ともだち".insert(-1, 'ね').should eq("ともだちね")
+    "ともだち".insert(-2, 'ね').should eq("ともだねち")
+
+    expect_raises(IndexError) { "bar".insert(4, "foo") }
+    expect_raises(IndexError) { "bar".insert(-5, "foo") }
+    expect_raises(IndexError) { "bar".insert(4, 'f') }
+    expect_raises(IndexError) { "bar".insert(-5, 'f') }
+
+    "barbar".insert(0, "foo").size.should eq(9)
+    "ともだち".insert(0, "ねこ").size.should eq(6)
   end
 end

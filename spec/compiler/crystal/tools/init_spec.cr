@@ -25,6 +25,7 @@ module Crystal
     run_init_project("app", "example_app", "tmp/example_app", "John Smith", "john@smith.com", "jsmith")
     run_init_project("lib", "example-lib", "tmp/example-lib", "John Smith", "john@smith.com", "jsmith")
     run_init_project("lib", "camel_example-camel_lib", "tmp/camel_example-camel_lib", "John Smith", "john@smith.com", "jsmith")
+    run_init_project("lib", "example", "tmp/other-example-directory", "John Smith", "john@smith.com", "jsmith")
 
     describe_file "example-lib/src/example-lib.cr" do |file|
       file.should contain("Example::Lib")
@@ -85,16 +86,15 @@ dependencies:
     end
 
     describe_file "example/shard.yml" do |shard_yml|
-      parsed = YAML.load(shard_yml) as Hash
+      parsed = YAML.parse(shard_yml)
       parsed["name"].should eq("example")
       parsed["version"].should eq("0.1.0")
-      authors = (parsed["authors"] as Array)
-      authors.should eq(["John Smith <john@smith.com>"])
+      parsed["authors"].should eq(["John Smith <john@smith.com>"])
       parsed["license"].should eq("MIT")
     end
 
     describe_file "example/.travis.yml" do |travis|
-      parsed = YAML.load(travis) as Hash
+      parsed = YAML.parse(travis)
 
       parsed["language"].should eq("crystal")
     end
@@ -135,6 +135,8 @@ end
     end
 
     describe_file "example/.git/config" { }
+
+    describe_file "other-example-directory/.git/config" { }
   end
 
   describe Init do
@@ -152,6 +154,18 @@ end
       `bin/crystal init lib "#{__DIR__}/tmp" 2>/dev/null`.should contain("file or directory #{__DIR__}/tmp already exists")
 
       File.delete("#{__DIR__}/tmp")
+    end
+
+    it "honors the custom set directory name" do
+      Dir.mkdir_p("tmp")
+
+      `bin/crystal init lib tmp 2>/dev/null`.should contain("file or directory tmp already exists")
+
+      `bin/crystal init lib tmp "#{__DIR__}/fresh-new-tmp" 2>/dev/null`.should_not contain("file or directory tmp already exists")
+
+      `bin/crystal init lib tmp "#{__DIR__}/fresh-new-tmp" 2>/dev/null`.should contain("file or directory #{__DIR__}/fresh-new-tmp already exists")
+
+      `rm -rf tmp #{__DIR__}/fresh-new-tmp`
     end
   end
 end

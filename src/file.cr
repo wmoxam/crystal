@@ -5,6 +5,7 @@ lib LibC
   fun symlink(oldpath : Char*, newpath : Char*) : Int
   fun unlink(filename : Char*) : Int
   fun ftruncate(fd : Int, size : OffT) : Int
+  fun realpath(filename : Char*, realpath : Char*) : Char*
 
   F_OK = 0
   X_OK = 1 << 0
@@ -82,7 +83,7 @@ class File < IO::FileDescriptor
     oflag = m | o
   end
 
-  getter path
+  getter path : String
 
   # Returns a `File::Stat` object for the named file or raises
   # `Errno` in case of an error. In case of a symbolic link
@@ -195,6 +196,11 @@ class File < IO::FileDescriptor
     Dir.exists?(path)
   end
 
+  # Returns all components of the given filename except the last one
+  #
+  # ```
+  # File.dirname("/foo/bar/file.cr") # => "/foo/bar"
+  # ```
   def self.dirname(filename)
     filename.check_no_null_byte
     index = filename.rindex SEPARATOR
@@ -209,6 +215,11 @@ class File < IO::FileDescriptor
     end
   end
 
+  # Returns the last component of the given filename
+  #
+  # ```
+  # File.basename("/foo/bar/file.cr") # => "file.cr"
+  # ```
   def self.basename(filename)
     return "" if filename.bytesize == 0
     return SEPARATOR_STRING if filename == SEPARATOR_STRING
@@ -226,6 +237,12 @@ class File < IO::FileDescriptor
     end
   end
 
+  # Returns the last component of the given filename
+  # If the given suffix is present at the end of filename, it is removed
+  #
+  # ```
+  # File.basename("/foo/bar/file.cr", ".cr") # => "file"
+  # ```
   def self.basename(filename, suffix)
     suffix.check_no_null_byte
     basename = basename(filename)
@@ -303,6 +320,13 @@ class File < IO::FileDescriptor
       end
       items.join SEPARATOR_STRING, str
     end
+  end
+
+  # Resolves the real path of the file by following symbolic links
+  def self.real_path(path)
+    real_path_ptr = LibC.realpath(path, nil)
+    raise Errno.new("Error resolving real path of #{path}") unless real_path_ptr
+    String.new(real_path_ptr).tap { LibC.free(real_path_ptr as Void*) }
   end
 
   # Creates a new link (also known as a hard link) to an existing file.

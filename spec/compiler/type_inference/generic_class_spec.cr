@@ -20,7 +20,7 @@ describe "Type inference: generic class" do
       class Bar < Foo(A, B)
       end
       ),
-      "wrong number of type vars for Foo(T) (2 for 1)"
+      "wrong number of type vars for Foo(T) (given 2, expected 1)"
   end
 
   it "inhertis from generic with instantiation" do
@@ -253,7 +253,7 @@ describe "Type inference: generic class" do
 
       Foo(Char | String).bar
       ),
-      "can't lookup type in union (String | Char)"
+      "can't lookup type in union (Char | String)"
   end
 
   it "instantiates generic class with default argument in initialize (#394)" do
@@ -324,7 +324,7 @@ describe "Type inference: generic class" do
       class Bar < Foo
       end
       ),
-      "wrong number of type vars for Foo(T) (0 for 1)"
+      "wrong number of type vars for Foo(T) (given 0, expected 1)"
   end
 
   %w(Object Value Reference Number Int Float Struct Class Proc Tuple Enum StaticArray Pointer).each do |type|
@@ -346,6 +346,7 @@ describe "Type inference: generic class" do
   it "errors if using Number in alias" do
     assert_error %(
       alias T = Number | String
+      T
       ),
       "can't use Number in unions yet, use a more specific type"
   end
@@ -353,6 +354,7 @@ describe "Type inference: generic class" do
   it "errors if using Number in recursive alias" do
     assert_error %(
       alias T = Number | Pointer(T)
+      T
       ),
       "can't use Number in unions yet, use a more specific type"
   end
@@ -505,6 +507,26 @@ describe "Type inference: generic class" do
       "generic type too nested"
   end
 
+  it "errors on generic type too nested (#2257)" do
+    assert_error %(
+      class Foo(T)
+      end
+
+      class Bar
+        def initialize(@value)
+        end
+
+        def value
+          @value
+        end
+      end
+
+      foo = Foo(typeof(Bar.new(nil).value))
+      Bar.new(foo)
+      ),
+      "generic type too nested"
+  end
+
   it "errors on too nested tuple instance" do
     assert_error %(
       def foo
@@ -587,5 +609,128 @@ describe "Type inference: generic class" do
 
       Foo.new(Bar(Int32).new).x
       )) { int32 }
+  end
+
+  it "inherits instance var type annotation from generic to concrete" do
+    assert_type(%(
+      class Foo(T)
+        @x : Int32?
+
+        def x
+          @x
+        end
+      end
+
+      class Bar < Foo(Int32)
+      end
+
+      Bar.new.x
+      )) { nilable int32 }
+  end
+
+  it "inherits instance var type annotation from generic to concrete with T" do
+    assert_type(%(
+      class Foo(T)
+        @x : T?
+
+        def x
+          @x
+        end
+      end
+
+      class Bar < Foo(Int32)
+      end
+
+      Bar.new.x
+      )) { nilable int32 }
+  end
+
+  it "inherits instance var type annotation from generic to generic to concrete" do
+    assert_type(%(
+      class Foo(T)
+        @x : Int32?
+
+        def x
+          @x
+        end
+      end
+
+      class Bar(T) < Foo(T)
+      end
+
+      class Baz < Bar(Int32)
+      end
+
+      Baz.new.x
+      )) { nilable int32 }
+  end
+
+  it "doesn't duplicate overload on generic class class method (#2385)" do
+    nodes = parse(%(
+      class Foo(T)
+        def self.foo(x : Int32)
+        end
+      end
+
+      Foo(String).foo(35.7)
+      ))
+    begin
+      infer_type(nodes)
+    rescue ex : TypeException
+      msg = ex.to_s.lines.map(&.strip)
+      msg.count("- Foo(T)::foo(x : Int32)").should eq(1)
+    end
+  end
+
+  # Given:
+  #
+  # ```
+  # class Parent; end
+  #
+  # class Child1 < Parent; end
+  #
+  # class Child2 < Parent; end
+  #
+  # $x : Array(Parent)
+  # $x = [] of Parent
+  # ```
+  #
+  # This must not be allowed:
+  #
+  # ```
+  # $x = [] of Child1
+  # ```
+  #
+  # Because if the type of $x is considered Array(Parent) by the compiler,
+  # this should be allowed:
+  #
+  # ```
+  # $x << Child2.new
+  # ```
+  #
+  # However, here we will be inserting a `Child2` inside a `Child1`,
+  # which is totally incorrect.
+  it "doesn't allow union of generic class with module to be assigned to a generic class with module (#2425)" do
+    assert_error %(
+      module Plugin
+      end
+
+      class PluginContainer(T)
+      end
+
+      class Foo
+        include Plugin
+      end
+
+      class Bar
+        @value : PluginContainer(Plugin)
+
+        def initialize(@value)
+        end
+      end
+
+      Bar.new(PluginContainer(Foo).new)
+      ),
+      "instance variable '@value' of Bar must be PluginContainer(Plugin), not PluginContainer(Foo)"
   end
 end

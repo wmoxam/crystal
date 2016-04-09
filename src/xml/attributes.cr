@@ -1,6 +1,8 @@
 struct XML::Attributes
   include Enumerable(Node)
 
+  @node : Node
+
   def initialize(@node)
   end
 
@@ -8,7 +10,7 @@ struct XML::Attributes
     return true unless @node.element?
 
     props = self.props
-    props.nil?
+    props.null?
   end
 
   def [](index : Int)
@@ -39,7 +41,7 @@ struct XML::Attributes
     return unless @node.element?
 
     props = self.props
-    until props.nil?
+    until props.null?
       yield Node.new(props)
       props = props.value.next
     end

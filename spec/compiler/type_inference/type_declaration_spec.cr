@@ -94,52 +94,6 @@ describe "Type inference: type declaration" do
       "can't declare variable of generic non-instantiated type Foo"
   end
 
-  it "declares global variable" do
-    assert_error %(
-      $x : Int32
-      $x = true
-      ),
-      "type must be Int32, not Bool"
-  end
-
-  it "declares global variable and reads it (nilable)" do
-    assert_error %(
-      $x : Int32
-      $x
-      ),
-      "type must be Int32, not Nil"
-  end
-
-  it "declares class variable" do
-    assert_error %(
-      class Foo
-        @@x : Int32
-
-        def self.x=(x)
-          @@x = x
-        end
-      end
-
-      Foo.x = true
-      ),
-      "type must be Int32, not Nil"
-  end
-
-  it "declares class variable (2)" do
-    assert_error %(
-      class Foo
-        @@x : Int32
-
-        def self.x
-          @@x
-        end
-      end
-
-      Foo.x
-      ),
-      "type must be Int32, not Nil"
-  end
-
   it "errors (for now) when typing a local variable" do
     assert_error %(
       x : Int32
@@ -194,5 +148,23 @@ describe "Type inference: type declaration" do
       end
 
       Foo.new.x") { |mod| mod.union_of(mod.types["Parent"].virtual_type!, mod.nil) }
+  end
+
+  it "declares with `self`" do
+    assert_type(%(
+      class Foo
+        @foo : self
+
+        def initialize
+          @foo = uninitialized self
+        end
+
+        def foo
+          @foo
+        end
+      end
+
+      Foo.new.foo
+      )) { types["Foo"] }
   end
 end

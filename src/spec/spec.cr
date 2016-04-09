@@ -102,8 +102,8 @@ module Spec
 
   # :nodoc:
   class AssertionFailed < Exception
-    getter file
-    getter line
+    getter file : String
+    getter line : Int32
 
     def initialize(message, @file, @line)
       super(message)
@@ -122,28 +122,38 @@ module Spec
     @@aborted
   end
 
-  @@pattern = nil
-
   # :nodoc:
   def self.pattern=(pattern)
     @@pattern = Regex.new(Regex.escape(pattern))
   end
 
-  @@line = nil
-
   # :nodoc:
-  def self.line=(@@line)
+  def self.line=(@@line : Int32)
+  end
+
+  def self.add_location(file, line)
+    locations = @@locations ||= {} of String => Array(Int32)
+    lines = locations[File.expand_path(file)] ||= [] of Int32
+    lines << line
   end
 
   # :nodoc:
   def self.matches?(description, file, line)
     spec_pattern = @@pattern
     spec_line = @@line
+    locations = @@locations
 
     if line == spec_line
       return true
-    elsif spec_pattern || spec_line
-      Spec::RootContext.matches?(description, spec_pattern, spec_line)
+    end
+
+    if locations
+      lines = locations[file]?
+      return true if lines && lines.includes?(line)
+    end
+
+    if spec_pattern || spec_line || locations
+      Spec::RootContext.matches?(description, spec_pattern, spec_line, locations)
     else
       true
     end
@@ -160,11 +170,15 @@ module Spec
     @@fail_fast
   end
 
+  # Instructs the spec runner to execute the given block
+  # before each spec, regardless of where this method is invoked.
   def self.before_each(&block)
     before_each = @@before_each ||= [] of ->
     before_each << block
   end
 
+  # Instructs the spec runner to execute the given block
+  # after each spec, regardless of where this method is invoked.
   def self.after_each(&block)
     after_each = @@after_each ||= [] of ->
     after_each << block
@@ -180,7 +194,7 @@ module Spec
     @@after_each.try &.each &.call
   end
 
-  # :nodoc
+  # :nodoc:
   def self.run
     start_time = Time.now
     at_exit do
@@ -204,12 +218,20 @@ OptionParser.parse! do |opts|
   opts.on("--fail-fast", "abort the run on first failure") do
     Spec.fail_fast = true
   end
+  opts.on("--location file:line", "run example at line 'line' in file 'file', multiple allowed") do |location|
+    if location =~ /\A(.+?)\:(\d+)\Z/
+      Spec.add_location $1, $2.to_i
+    else
+      puts "location #{location} must be file:line"
+      exit
+    end
+  end
   opts.on("--help", "show this help") do |pattern|
     puts opts
     exit
   end
   opts.on("-v", "--verbose", "verbose output") do
-    Spec.formatter = Spec::VerboseFormatter.new
+    Spec.formatters.replace([Spec::VerboseFormatter.new])
   end
   opts.on("--no-color", "Disable colored output") do
     Spec.use_colors = false

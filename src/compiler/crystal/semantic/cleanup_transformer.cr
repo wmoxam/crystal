@@ -4,40 +4,54 @@ require "../types"
 
 module Crystal
   class Program
-    def after_type_inference(node)
-      node = node.transform(AfterTypeInferenceTransformer.new(self))
+    def cleanup(node)
+      node = node.transform(CleanupTransformer.new(self))
       puts node if ENV["AFTER"]? == "1"
       node
     end
 
-    def finish_types
-      transformer = AfterTypeInferenceTransformer.new(self)
+    def cleanup_types
+      transformer = CleanupTransformer.new(self)
       after_inference_types.each do |type|
-        finish_type type, transformer
+        cleanup_type type, transformer
       end
     end
 
-    def finish_type(type, transformer)
+    def cleanup_type(type, transformer)
       case type
       when GenericClassInstanceType
-        finish_single_type(type, transformer)
+        cleanup_single_type(type, transformer)
       when GenericClassType
         type.generic_types.each_value do |instance|
-          finish_type instance, transformer
+          cleanup_type instance, transformer
         end
       when ClassType
-        finish_single_type(type, transformer)
+        cleanup_single_type(type, transformer)
       end
     end
 
-    def finish_single_type(type, transformer)
+    def cleanup_single_type(type, transformer)
       type.instance_vars_initializers.try &.each do |initializer|
         initializer.value = initializer.value.transform(transformer)
       end
     end
   end
 
-  class AfterTypeInferenceTransformer < Transformer
+  # This visitor runs at the end and does some simplifications to the resulting AST node.
+  #
+  # For example, it rewrites and `if true; 1; else; 2; end` to a single `1`. It does
+  # so for other "always true conditions", such as `x.is_a?(Foo)` where `x` can only
+  # be of type `Foo`. These simplifications are needed because the codegen would have no
+  # idea on how to generate code for unreachable branches, because they have no type,
+  # and for now the codegen only deals with typed nodes.
+  class CleanupTransformer < Transformer
+    @program : Program
+    @transformed : Set(UInt64)
+    @def_nest_count : Int32
+    @last_is_truthy : Bool
+    @last_is_falsey : Bool
+    @const_being_initialized : Path?
+
     def initialize(@program)
       @transformed = Set(typeof(object_id)).new
       @def_nest_count = 0
@@ -55,10 +69,27 @@ module Crystal
         else
           @last_is_falsey = true
         end
+      when Not
+        if @last_is_truthy
+          @last_is_falsey = true
+          @last_is_truthy = false
+        elsif @last_is_falsey
+          @last_is_truthy = true
+          @last_is_falsey = false
+        else
+          reset_last_status
+        end
       when NilLiteral
         @last_is_falsey = true
+      when Nop
+        @last_is_falsey = true
       else
-        reset_last_status
+        if node.type?.try &.nil_type?
+          @last_is_falsey = true
+          @last_is_truthy = false
+        else
+          reset_last_status
+        end
       end
     end
 
@@ -218,8 +249,10 @@ module Crystal
     def transform(node : EnumDef)
       super
 
-      node.enum_type.try &.types.each_value do |const|
-        (const as Const).initialized = true
+      if node.created_new_type
+        node.resolved_type.types.each_value do |const|
+          (const as Const).initialized = true
+        end
       end
 
       node
@@ -269,7 +302,7 @@ module Crystal
         return untyped_expression(node, "`#{obj}` has no type")
       end
 
-      if obj && !obj.type.allocated
+      if obj && !obj.type.allocated?
         return untyped_expression(node, "#{obj.type} in `#{obj}` was never instantiated")
       end
 
@@ -278,14 +311,14 @@ module Crystal
           return untyped_expression(node, "`#{arg}` has no type")
         end
 
-        unless arg.type.allocated
+        unless arg.type.allocated?
           return untyped_expression(node, "#{arg.type} in `#{arg}` was never instantiated")
         end
       end
 
       # Check if the block has its type freezed and it doesn't match the current type
       if block && (freeze_type = block.freeze_type) && (block_type = block.type?)
-        unless freeze_type.is_restriction_of_all?(block_type)
+        unless block_type.implements?(freeze_type)
           freeze_type = freeze_type.base_type if freeze_type.is_a?(VirtualType)
           node.raise "expected block to return #{freeze_type}, not #{block_type}"
         end
@@ -322,7 +355,7 @@ module Crystal
         end
 
         target_defs.each do |target_def|
-          allocated = target_def.owner.allocated && target_def.args.all? &.type.allocated
+          allocated = target_def.owner.allocated? && target_def.args.all? &.type.allocated?
           if allocated
             allocated_defs << target_def
 
@@ -341,7 +374,7 @@ module Crystal
 
                 # It can happen that the body of the function changed, and as
                 # a result the type changed. In that case we need to rebind the
-                # def to the new body, unbinding it from the prevoius one.
+                # def to the new body, unbinding it from the previous one.
                 if new_type != old_type
                   target_def.unbind_from old_body
                   target_def.bind_to target_def.body
@@ -392,7 +425,8 @@ module Crystal
     end
 
     class ClosuredVarsCollector < Visitor
-      getter vars
+      getter vars : Array(ASTNode)
+      @a_def : Def
 
       def self.collect(a_def)
         visitor = new a_def
@@ -490,7 +524,7 @@ module Crystal
 
     def build_raise(msg)
       call = Call.global("raise", StringLiteral.new(msg))
-      call.accept TypeVisitor.new(@program)
+      call.accept MainVisitor.new(@program)
       call
     end
 
@@ -528,6 +562,18 @@ module Crystal
     #     end
     #   end
     # end
+
+    def transform(node : While)
+      super
+
+      # If the condition is a NoReturn, just replace the whole
+      # while with it, since the body will never be executed
+      if node.cond.no_returns?
+        return node.cond
+      end
+
+      node
+    end
 
     def transform(node : If)
       node.cond = node.cond.transform(self)
@@ -602,6 +648,27 @@ module Crystal
       if replacement = node.syntax_replacement
         replacement.transform(self)
       else
+        # If it's `nil?` we want to give an error if obj has a Pointer type
+        # inside it. This is because `Pointer#nil?` would previously mean
+        # "is it a null pointer?" but now it means "is it Nil?" which would
+        # always give false. Having this as a silent change will break a lot
+        # of code, so it's better to be more conservative for one release
+        # and let the user manually fix this (there might be valid `nil?`
+        # cases, for example if there is a union of Pointer and Nil).
+        if node.nil_check? && (obj_type = node.obj.type?)
+          if obj_type.pointer? || (obj_type.is_a?(UnionType) && obj_type.union_types.any?(&.pointer?))
+            node.raise <<-ERROR
+              use `null?` instead of `nil?` on pointer types.
+
+              The semantic of `nil?` changed in the last version of the language
+              to mean `is_a?(Nil)`. `Pointer#nil?` meant "is it a null pointer?"
+              so using `nil?` is probably not what you mean here. If it is,
+              you can use `is_a?(Nil)` instead and in the next version of
+              the language revert it to `nil?`.
+              ERROR
+          end
+        end
+
         transform_is_a_or_responds_to node, &.filter_by(node.const.type)
       end
     end
@@ -677,13 +744,15 @@ module Crystal
         unless to_type.pointer? || to_type.reference_like?
           node.raise "can't cast #{obj_type} to #{to_type}"
         end
+      elsif obj_type.no_return?
+        node.type = @program.no_return
       else
         resulting_type = obj_type.filter_by(to_type)
         unless resulting_type
           node.raise "can't cast #{obj_type} to #{to_type}"
         end
 
-        unless to_type.allocated
+        unless to_type.allocated?
           return build_raise "can't cast to #{to_type} because it was never instantiated"
         end
       end
@@ -714,7 +783,7 @@ module Crystal
         new_rescues = [] of Rescue
 
         node_rescues.each do |a_rescue|
-          if !a_rescue.type? || a_rescue.type.allocated
+          if !a_rescue.type? || a_rescue.type.allocated?
             new_rescues << a_rescue
           end
         end
@@ -789,6 +858,8 @@ module Crystal
       end
     end
 
+    @false_literal : BoolLiteral?
+
     def false_literal
       @false_literal ||= begin
         false_literal = BoolLiteral.new(false)
@@ -796,6 +867,8 @@ module Crystal
         false_literal
       end
     end
+
+    @true_literal : BoolLiteral?
 
     def true_literal
       @true_literal ||= begin

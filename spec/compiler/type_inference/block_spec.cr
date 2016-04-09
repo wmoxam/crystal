@@ -149,18 +149,30 @@ describe "Block inference" do
       "argument #1 of yield expected to be Int32, not Float64"
   end
 
-  it "reports error if yields a type that's not that one in the block specification and type changes" do
+  it "reports error if yields a type that's not that one in the block specification" do
     assert_error "
-      $global = 1
-
       def foo(&block: Int32 -> )
-        yield $global
-        $global = 10.5
+        yield (1 || 1.5)
       end
 
       foo {}
       ",
-      "type must be Int32, not"
+      "argument #1 of yield expected to be Int32, not (Float64 | Int32)"
+  end
+
+  it "reports error if yields a type that later changes and that's not that one in the block specification" do
+    assert_error "
+      def foo(&block: Int32 -> )
+        a = 1
+        while true
+          yield a
+          a = 1.5
+        end
+      end
+
+      foo {}
+      ",
+      "type must be Int32, not (Float64 | Int32)"
   end
 
   it "doesn't report error if yields nil but nothing is yielded" do
@@ -195,15 +207,28 @@ describe "Block inference" do
       "expected block to return Float64, not Char"
   end
 
+  it "reports error if block type doesn't match" do
+    assert_error "
+      def foo(&block: Int32 -> Float64)
+        yield 1
+      end
+
+      foo { 1 || 1.5 }
+      ",
+      "expected block to return Float64, not (Float64 | Int32)"
+  end
+
   it "reports error if block changes type" do
     assert_error "
       def foo(&block: Int32 -> Float64)
         yield 1
       end
 
-      $global = 10.5
-      foo { $global }
-      $global = 'a'
+      a = 10.5
+      while true
+        foo { a }
+        a = 1
+      end
       ",
       "type must be Float64"
   end
@@ -1050,5 +1075,87 @@ describe "Block inference" do
 
       f.call
       )) { union_of int32, float64 }
+  end
+
+  it "sets captured block type to that of restriction" do
+    assert_type(%(
+      def foo(&block : -> Int32 | String)
+        block
+      end
+
+      foo { 1 }
+      )) { fun_of(union_of(int32, string)) }
+  end
+
+  it "sets captured block type to that of restriction with alias" do
+    assert_type(%(
+      alias Alias = -> Int32 | String
+      def foo(&block : Alias)
+        block
+      end
+
+      foo { 1 }
+      )) { fun_of(union_of(int32, string)) }
+  end
+
+  it "matches block with generic type and free var" do
+    assert_type(%(
+      class Foo(T)
+      end
+
+      def foo(&block : -> Foo(T))
+        block
+        T
+      end
+
+      foo { Foo(Int32).new }
+      )) { int32.metaclass }
+  end
+
+  it "doesn't mix local var with block var, using break (#2314)" do
+    assert_type(%(
+      def foo
+        yield 1
+      end
+
+      x = true
+      foo do |x|
+        break
+      end
+      x
+      )) { bool }
+  end
+
+  it "doesn't mix local var with block var, using next (#2314)" do
+    assert_type(%(
+      def foo
+        yield 1
+      end
+
+      x = true
+      foo do |x|
+        next
+      end
+      x
+      )) { bool }
+  end
+
+  ["Object", "Foo(Object)", "Bar | Object", "(Object ->)", "( -> Object)"].each do |string|
+    it "errors if using #{string} as block return type (#2358)" do
+      assert_error %(
+        class Foo(T)
+        end
+
+        class Bar
+        end
+
+        def capture(&block : -> #{string})
+          block
+        end
+
+        capture { 1 }
+        ),
+        "use a more specific type"
+    end
   end
 end

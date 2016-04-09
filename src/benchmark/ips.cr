@@ -17,6 +17,10 @@ module Benchmark
       # After #execute, these are populated with the resulting statistics.
       property items : Array(Entry)
 
+      @interactive : Bool
+      @warmup_time : Time::Span
+      @calculation_time : Time::Span
+
       def initialize(calculation = 5, warmup = 2, @interactive = STDOUT.tty?)
         @warmup_time = warmup.seconds
         @calculation_time = calculation.seconds
@@ -121,29 +125,30 @@ module Benchmark
 
       # Number of cycles needed to run for approx 100ms
       # Calculated during the warmup stage
-      property! cycles : Int
+      property! cycles : Int32
 
       # Number of 100ms runs during the calculation stage
-      property! size : Int
+      property! size : Int32
 
-      # Statistcal mean from calculation stage
-      property! mean : Float
+      # Statistical mean from calculation stage
+      property! mean : Float64
 
-      # Statistcal variance from calculation stage
-      property! variance : Float
+      # Statistical variance from calculation stage
+      property! variance : Float64
 
-      # Statistcal standard deviation from calculation stage
-      property! stddev : Float
+      # Statistical standard deviation from calculation stage
+      property! stddev : Float64
 
       # Relative standard deviation as a percentage
-      property! relative_stddev : Float
+      property! relative_stddev : Float64
 
       # Multiple slower than the fastest entry
-      property! slower : Float
+      property! slower : Float64
 
+      @ran : Bool
       @ran = false
 
-      def initialize(@label, @action)
+      def initialize(@label, @action : ->)
       end
 
       def ran?

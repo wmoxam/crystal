@@ -1,4 +1,10 @@
+require "./renderer"
+
 class Markdown::HTMLRenderer
+  include Renderer
+
+  @io : IO
+
   def initialize(@io)
   end
 
@@ -46,7 +52,7 @@ class Markdown::HTMLRenderer
     @io << "</code>"
   end
 
-  def begin_code(language = nil)
+  def begin_code(language)
     if language.nil?
       @io << "<pre><code>"
     else
@@ -56,6 +62,14 @@ class Markdown::HTMLRenderer
 
   def end_code
     @io << "</code></pre>"
+  end
+
+  def begin_quote
+    @io << "<blockquote>"
+  end
+
+  def end_quote
+    @io << "</blockquote>"
   end
 
   def begin_unordered_list

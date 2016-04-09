@@ -36,11 +36,7 @@ end
 class Tempfile < IO::FileDescriptor
   # Creates a `Tempfile` with the given filename.
   def initialize(name)
-    if tmpdir = ENV["TMPDIR"]?
-      tmpdir = tmpdir + File::SEPARATOR unless tmpdir.ends_with? File::SEPARATOR
-    else
-      tmpdir = "/tmp/"
-    end
+    tmpdir = self.class.dirname + File::SEPARATOR
     @path = "#{tmpdir}#{name}.XXXXXX"
     fileno = LibC.mkstemp(@path)
     if fileno == -1
@@ -49,11 +45,11 @@ class Tempfile < IO::FileDescriptor
     super(fileno, blocking: true)
   end
 
-  # Retrives the full path of a this tempfile.
+  # Retrieves the full path of a this tempfile.
   # ```
   # Tempfile.new("foo").path # => "/tmp/foo.ulBCPS"
   # ```
-  getter path
+  getter path : String
 
   # Creates a file with *filename*, and yields it to the given block.
   # It is closed and returned at the end of this method call.
@@ -72,6 +68,18 @@ class Tempfile < IO::FileDescriptor
       tempfile.close
     end
     tempfile
+  end
+
+  # Returns the tmp dir used for tempfile
+  # ```
+  # Tempfile.dirname # => "/tmp"
+  # ```
+  def self.dirname
+    unless tmpdir = ENV["TMPDIR"]?
+      tmpdir = "/tmp"
+    end
+    tmpdir = tmpdir + File::SEPARATOR unless tmpdir.ends_with? File::SEPARATOR
+    File.dirname(tmpdir)
   end
 
   # Deletes this tempfile.

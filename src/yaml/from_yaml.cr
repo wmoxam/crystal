@@ -27,13 +27,11 @@ def Bool.new(pull : YAML::PullParser)
   pull.read_scalar == "true"
 end
 
-def Int32.new(pull : YAML::PullParser)
-  pull.read_scalar.to_i
-end
-
-def Int64.new(pull : YAML::PullParser)
-  pull.read_scalar.to_i64
-end
+{% for type in %w(Int8 Int16 Int32 Int64 UInt8 UInt16 UInt32 UInt64) %}
+  def {{type.id}}.new(pull : YAML::PullParser)
+    {{type.id}}.new(pull.read_scalar)
+  end
+{% end %}
 
 def String.new(pull : YAML::PullParser)
   pull.read_scalar
@@ -96,5 +94,17 @@ struct Time::Format
   def from_yaml(pull : YAML::PullParser)
     string = pull.read_scalar
     parse(string)
+  end
+end
+
+module Time::EpochConverter
+  def self.from_yaml(value : YAML::PullParser)
+    Time.epoch(value.read_scalar.to_i)
+  end
+end
+
+module Time::EpochMillisConverter
+  def self.from_yaml(value : YAML::PullParser)
+    Time.epoch_ms(value.read_scalar.to_i64)
   end
 end

@@ -1,4 +1,8 @@
 class Markdown::Parser
+  @renderer : Renderer
+  @lines : Array(String)
+  @line : Int32
+
   def initialize(text, @renderer)
     @lines = text.lines.map &.chomp
     @line = 0
@@ -59,6 +63,10 @@ class Markdown::Parser
       return render_ordered_list
     end
 
+    if line.starts_with? ">"
+      return render_quote
+    end
+
     render_paragraph
   end
 
@@ -113,7 +121,7 @@ class Markdown::Parser
   end
 
   def render_code
-    @renderer.begin_code
+    @renderer.begin_code nil
 
     while true
       line = @lines[@line]
@@ -144,7 +152,7 @@ class Markdown::Parser
     language = line[3..-1].strip
 
     if language.empty?
-      @renderer.begin_code
+      @renderer.begin_code nil
     else
       @renderer.begin_code language
     end
@@ -176,6 +184,29 @@ class Markdown::Parser
     append_double_newline_if_has_more
   end
 
+  def render_quote
+    @renderer.begin_quote
+
+    while true
+      line = @lines[@line]
+
+      break unless line.starts_with? ">"
+
+      @renderer.text line.byte_slice(Math.min(line.bytesize, 2))
+      @line += 1
+
+      if @line == @lines.size
+        break
+      end
+
+      newline
+    end
+
+    @renderer.end_quote
+
+    append_double_newline_if_has_more
+  end
+
   def render_unordered_list(prefix = '*')
     @renderer.begin_unordered_list
 
@@ -194,9 +225,18 @@ class Markdown::Parser
 
       break unless starts_with_bullet_list_marker?(line, prefix)
 
+      if line.starts_with?("  ") && previous_line_is_not_intended_and_starts_with_bullet_list_marker?(prefix)
+        @renderer.begin_unordered_list
+      end
+
       @renderer.begin_list_item
       process_line line.byte_slice(line.index(prefix).not_nil! + 1)
       @renderer.end_list_item
+
+      if line.starts_with?("  ") && next_line_is_not_intended?
+        @renderer.end_unordered_list
+      end
+
       @line += 1
 
       if @line == @lines.size
@@ -475,6 +515,18 @@ class Markdown::Parser
 
     return false unless pos < bytesize
     str[pos].chr.whitespace?
+  end
+
+  def previous_line_is_not_intended_and_starts_with_bullet_list_marker?(prefix)
+    previous_line = @lines[@line - 1]
+    !previous_line.starts_with?("  ") && starts_with_bullet_list_marker?(previous_line, prefix)
+  end
+
+  def next_line_is_not_intended?
+    return true unless @line + 1 < @lines.size
+
+    next_line = @lines[@line + 1]
+    !next_line.starts_with?("  ")
   end
 
   def starts_with_backticks?(line)

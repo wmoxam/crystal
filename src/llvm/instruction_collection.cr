@@ -1,9 +1,11 @@
 struct LLVM::InstructionCollection
+  @basic_block : BasicBlock
+
   def initialize(@basic_block)
   end
 
   def empty?
-    llvm_first.nil?
+    llvm_first.null?
   end
 
   def first?

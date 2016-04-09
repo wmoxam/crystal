@@ -221,7 +221,7 @@ describe "Type inference: macro" do
       end
 
       foo(1)
-      ), "wrong number of arguments for macro 'foo' (1 for 0)"
+      ), "wrong number of arguments for macro 'foo' (given 1, expected 0)"
   end
 
   it "executs raise inside macro" do
@@ -378,7 +378,7 @@ describe "Type inference: macro" do
         1 + 'a'
       end
       ),
-      "Error in line 7"
+      "in line 7"
   end
 
   it "transforms with {{yield}} and call" do
@@ -616,6 +616,86 @@ describe "Type inference: macro" do
       method do |x|
         foo
       end
+      )) { int32 }
+  end
+
+  it "declares variable for macro with out" do
+    assert_type(%(
+      lib LibFoo
+        fun foo(x : Int32*)
+      end
+
+      macro some_macro
+        z
+      end
+
+      LibFoo.foo(out z)
+      some_macro
+      )) { int32 }
+  end
+
+  it "show macro trace in errors (1)" do
+    assert_error %(
+      macro foo
+        Bar
+      end
+
+      foo
+    ),
+      "Error in line 6: expanding macro"
+  end
+
+  it "show macro trace in errors (2)" do
+    assert_error %(
+      {% begin %}
+        Bar
+      {% end %}
+    ),
+      "Error in line 2: expanding macro"
+  end
+
+  it "errors if using macro that is defined later" do
+    assert_error %(
+      class Bar
+        foo
+      end
+
+      macro foo
+      end
+      ),
+      "macro 'foo' must be defined before this point but is defined later"
+  end
+
+  it "looks up argument types in macro owner, not in subclass (#2395)" do
+    assert_type(%(
+      struct Nil
+        def method(x : Problem)
+          0
+        end
+      end
+
+      class Foo
+        macro def method(x : Problem) : Int32
+          {% for ivar in @type.instance_vars %}
+            @{{ivar.id}}.method(x)
+          {% end %}
+          42
+        end
+      end
+
+      class Problem
+      end
+
+      module Moo
+        class Problem
+        end
+
+        class Bar < Foo
+          @foo : Foo?
+        end
+      end
+
+      Moo::Bar.new.method(Problem.new)
       )) { int32 }
   end
 end

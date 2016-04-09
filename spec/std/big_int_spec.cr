@@ -24,6 +24,12 @@ describe "BigInt" do
     BigInt.new("12345678").to_s.should eq("12345678")
   end
 
+  it "raises if creates from string but invalid" do
+    expect_raises ArgumentError, "invalid BigInt: 123 hello 456" do
+      BigInt.new("123 hello 456")
+    end
+  end
+
   it "creates from float" do
     BigInt.new(12.3).to_s.should eq("12")
   end
@@ -191,6 +197,13 @@ describe "BigInt" do
     big.to_u16.should eq(722)
     big.to_u32.should eq(1234567890)
     big.to_u64.should eq(1234567890)
+  end
+
+  ifdef x86_64
+    # For 32 bits libgmp can't seem to be able to do it
+    it "can cast UInt64::MAX to UInt64 (#2264)" do
+      BigInt.new(UInt64::MAX).to_u64.should eq(UInt64::MAX)
+    end
   end
 
   it "does String#to_big_i" do

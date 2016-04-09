@@ -3,13 +3,13 @@ require "../../spec_helper"
 private def assert_format(input, output = input, strict = false, file = __FILE__, line = __LINE__)
   it "formats #{input.inspect}", file, line do
     output = "#{output}\n" unless strict
-    result = Crystal::Formatter.format(input)
+    result = Crystal.format(input)
     unless result == output
       fail "Expected\n\n~~~\n#{input}\n~~~\nto format to:\n\n~~~\n#{output}\n~~~\n\nbut got:\n\n~~~\n#{result}\n~~~\n\n  assert_format #{input.inspect}, #{result.chomp.inspect}"
     end
 
     # Check idempotency
-    result2 = Crystal::Formatter.format(result)
+    result2 = Crystal.format(result)
     unless result == result2
       fail "Idempotency failed:\nBefore: #{result.inspect}\nAfter:  #{result2.inspect}"
     end
@@ -152,7 +152,7 @@ describe Crystal::Formatter do
   assert_format "def   foo (  x  :  self )  \n  end", "def foo(x : self)\nend"
   assert_format "def   foo (  x  :  Foo.class )  \n  end", "def foo(x : Foo.class)\nend"
   assert_format "def   foo (  x  :  Foo+ )  \n  end", "def foo(x : Foo+)\nend"
-  assert_format "def   foo (  x  =   1  :  Int32 )  \n  end", "def foo(x = 1 : Int32)\nend"
+  assert_format "def   foo (  x  :   Int32  =  1 )  \n  end", "def foo(x : Int32 = 1)\nend"
   assert_format "abstract  def   foo  \n  1", "abstract def foo\n\n1"
   assert_format "def foo( & block )\nend", "def foo(&block)\nend"
   assert_format "def foo( x , & block )\nend", "def foo(x, &block)\nend"
@@ -659,8 +659,7 @@ describe Crystal::Formatter do
   assert_format "  ((1) + 2)", "((1) + 2)"
   assert_format "if 1\n  ((1) + 2)\nend"
 
-  # This case is special and must be fixed in the parser
-  assert_format "def   foo(x   :  self ?) \n  end", "def foo(x : self ?)\nend"
+  assert_format "def   foo(x   :  self ?) \n  end", "def foo(x : self?)\nend"
 
   assert_format "  macro foo\n  end\n\n  :+", "macro foo\n  end\n\n:+"
   assert_format "[\n1, # a\n2, # b\n 3 # c\n]", "[\n  1, # a\n  2, # b\n  3, # c\n]"
@@ -782,5 +781,78 @@ describe Crystal::Formatter do
   assert_format "<<-HTML\n  \#{1}x\n  y\n  HTML"
   assert_format "<<-HTML\n  \#{1}x\n  y\n  z\n  HTML"
 
+  assert_format "  <<-HTML\n   foo\n  HTML", "<<-HTML\n foo\nHTML"
+  assert_format "  <<-HTML\n   \#{1}\n  HTML", "<<-HTML\n \#{1}\nHTML"
+  assert_format "  <<-HTML\n  \#{1} \#{2}\n  HTML", "<<-HTML\n\#{1} \#{2}\nHTML"
+  assert_format "  <<-HTML\n  foo\nHTML", "<<-HTML\nfoo\nHTML"
+
   assert_format "#!shebang\n1 + 2"
+
+  assert_format "   {{\n1 + 2 }}", "{{\n  1 + 2\n}}"
+  assert_format "   {{\n1 + 2\n   }}", "{{\n  1 + 2\n}}"
+  assert_format "   {%\na = 1 %}", "{%\n  a = 1\n%}"
+  assert_format "   {%\na = 1\n   %}", "{%\n  a = 1\n%}"
+
+  assert_format "macro foo\n  {{\n1 + 2 }}\nend", "macro foo\n  {{\n    1 + 2\n  }}\nend"
+  assert_format "macro foo\n  def bar\n    {{\n      1 + 2\n    }}\n  end\nend"
+  assert_format "foo &.[]"
+  assert_format "foo &.[](1, 2)"
+  assert_format "foo &.[](  1, 2  )", "foo &.[](1, 2)"
+  assert_format "foo &.[]?"
+  assert_format "foo &.[]?(1, 2)"
+  assert_format "foo &.[]?(  1, 2  )", "foo &.[]?(1, 2)"
+  assert_format "foo &.[]=(1, 2)"
+  assert_format "foo &.[]=(  1, 2  )", "foo &.[]=(1, 2)"
+
+  assert_format "foo.[]"
+  assert_format "foo.[1]"
+
+  assert_format "@foo : Int32 # comment\n\ndef foo\nend"
+
+  assert_format "a &.b as C"
+  assert_format "a &.b.c as C"
+  assert_format "a(&.b.c as C)"
+
+  assert_format "foo : self?"
+  assert_format "foo : self? | A"
+
+  assert_format "foo : (A) | D"
+  assert_format "foo : (F(A)) | D"
+
+  assert_format "def   foo(x   :  (A | B)) \n  end", "def foo(x : (A | B))\nend"
+  assert_format "foo : (String -> String?) | (String)"
+  assert_format "foo : (Array(String)?) | String"
+  assert_format "foo : (String -> Array(String)?) | (String -> Array(String)) | Nil"
+  assert_format "module Readline\n  @@completion_proc : (String -> Array(String)?) | (String -> Array(String)) | Nil\nend"
+  assert_format "alias A = (B(C, (C | D)) | E)"
+  assert_format "alias A = ((B(C | D) | E) | F)"
+
+  assert_format "foo : A(B)\nbar : C"
+  assert_format "foo : (A -> B)\nbar : C"
+  assert_format "def foo(x : A(B), y)\nend"
+  assert_format "alias X = (A, B) ->\nbar : C"
+  assert_format "macro def foo : A(B)\n  nil\nend"
+  assert_format "macro def foo : (A, B) ->\n  nil\nend"
+  assert_format "macro def foo : (A | B(C))\n  nil\nend"
+  assert_format "macro def foo : A | B(C)\n  nil\nend"
+
+  assert_format "foo &.bar.is_a?(Baz)"
+  assert_format "foo &.bar.responds_to?(:baz)"
+
+  assert_format "foo &.nil?"
+  assert_format "foo &.bar.nil?"
+  assert_format "foo &.nil?()"
+  assert_format "foo &.bar.nil?()"
+
+  assert_format "foo(<<-X\na\nX\n, 1)"
+  assert_format "def bar\n  foo(<<-X\n  a\n  X\n  , 1)\nend"
+  assert_format %(run("a", 1))
+
+  assert_format "foo.bar # comment\n   .baz"
+  assert_format "foo.bar(1) # comment\n   .baz"
+
+  assert_format "foo[bar.baz]\n  .qux"
+
+  assert_format "bla.select(&.all?{ |x| x } )", "bla.select(&.all? { |x| x })"
+  assert_format "def foo\n  <<-FOO\n  foo \#{1}\n  FOO\nend"
 end

@@ -1,30 +1,29 @@
 class IPSocket < Socket
-  macro sockname(name, method)
-    def {{name.id}}
-      addr = uninitialized LibC::SockAddrIn6
-      addrlen = LibC::SocklenT.new(sizeof(LibC::SockAddrIn6))
+  def local_address
+    sockaddr = uninitialized LibC::SockAddrIn6
+    addrlen = LibC::SocklenT.new(sizeof(LibC::SockAddrIn6))
 
-      if LibC.{{method.id}}(fd, pointerof(addr) as LibC::SockAddr*, pointerof(addrlen)) != 0
-        raise Errno.new("{{method.id}}")
-      end
-
-      if addrlen == sizeof(LibC::SockAddrIn6)
-        family_name = "AF_INET6"
-        result_addr = (pointerof(addr) as LibC::SockAddrIn6*).value
-      else
-        family_name = "AF_INET"
-        result_addr = (pointerof(addr) as LibC::SockAddrIn*).value
-      end
-
-      Addr.new(family_name, LibC.htons(result_addr.port).to_u16, Socket.inet_ntop(result_addr))
+    if LibC.getsockname(fd, pointerof(sockaddr) as LibC::SockAddr*, pointerof(addrlen)) != 0
+      raise Errno.new("getsockname")
     end
+
+    IPAddress.new(sockaddr, addrlen)
   end
 
-  sockname :addr, :getsockname
-  sockname :peeraddr, :getpeername
+  def remote_address
+    sockaddr = uninitialized LibC::SockAddrIn6
+    addrlen = LibC::SocklenT.new(sizeof(LibC::SockAddrIn6))
+
+    if LibC.getpeername(fd, pointerof(sockaddr) as LibC::SockAddr*, pointerof(addrlen)) != 0
+      raise Errno.new("getpeername")
+    end
+
+    IPAddress.new(sockaddr, addrlen)
+  end
 
   class DnsRequestCbArg
-    getter value
+    getter value : Int32 | Pointer(LibC::Addrinfo) | Nil
+    @fiber : Fiber
 
     def initialize
       @fiber = Fiber.current
@@ -42,6 +41,10 @@ class IPSocket < Socket
   # (to connect or bind, for example), and false otherwise. If it returns false and
   # the LibC::Addrinfo has a next LibC::Addrinfo, it is yielded to the block, and so on.
   private def getaddrinfo(host, port, family, socktype, protocol = LibC::IPPROTO_IP, timeout = nil)
+    IPSocket.getaddrinfo(host, port, family, socktype, protocol, timeout) { |ai| yield ai }
+  end
+
+  def self.getaddrinfo(host, port, family, socktype, protocol = LibC::IPPROTO_IP, timeout = nil)
     hints = LibC::Addrinfo.new
     hints.family = (family || LibC::AF_UNSPEC).to_i32
     hints.socktype = socktype
@@ -90,12 +93,10 @@ class IPSocket < Socket
         LibEvent2.evutil_freeaddrinfo value
       end
     elsif value.is_a?(Int)
-      error_message =
-        if value == LibEvent2::EVUTIL_EAI_CANCEL
-          "Timed out"
-        else
-          String.new(LibC.gai_strerror(value))
-        end
+      if value == LibEvent2::EVUTIL_EAI_CANCEL
+        raise IO::Timeout.new("Failed to resolve #{host} in #{timeout} seconds")
+      end
+      error_message = String.new(LibC.gai_strerror(value))
       raise Socket::Error.new("getaddrinfo: #{error_message}")
     else
       raise "unknown type #{value.inspect}"

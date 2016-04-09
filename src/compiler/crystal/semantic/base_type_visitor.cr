@@ -1,7 +1,20 @@
 module Crystal
   abstract class BaseTypeVisitor < Visitor
-    getter mod
-    property types
+    getter mod : Program
+    property types : Array(Type)
+
+    @exp_nest : Int32
+    @attributes : Array(Attribute)?
+    @lib_def_pass : Int32
+    @in_type_args : Int32
+    @block_nest : Int32
+    @vars : MetaVars
+    @free_vars : Hash(String, Type)?
+    @type_lookup : Type?
+    @scope : Type?
+    @typed_def : Def?
+    @in_is_a : Bool
+    @last_doc : String?
 
     def initialize(@mod, @vars = MetaVars.new)
       @types = [@mod] of Type
@@ -10,6 +23,7 @@ module Crystal
       @lib_def_pass = 0
       @in_type_args = 0
       @block_nest = 0
+      @in_is_a = false
     end
 
     def visit(node : Attribute)
@@ -27,7 +41,7 @@ module Crystal
 
           meta_vars = MetaVars.new
           const_def = Def.new("const", [] of Arg)
-          type_visitor = TypeVisitor.new(@mod, meta_vars, const_def)
+          type_visitor = MainVisitor.new(@mod, meta_vars, const_def)
           type_visitor.types = type.scope_types
           type_visitor.scope = type.scope
 
@@ -55,7 +69,10 @@ module Crystal
       end
     end
 
-    def end_visit(node : Fun)
+    def visit(node : Fun)
+      node.inputs.try &.each &.accept(self)
+      node.output.try &.accept(self)
+
       if inputs = node.inputs
         types = inputs.map &.type.instance_type.virtual_type
       else
@@ -69,9 +86,13 @@ module Crystal
       end
 
       node.type = mod.fun_of(types)
+
+      false
     end
 
-    def end_visit(node : Union)
+    def visit(node : Union)
+      node.types.each &.accept self
+
       old_in_is_a, @in_is_a = @in_is_a, false
 
       types = node.types.map do |subtype|
@@ -89,14 +110,29 @@ module Crystal
       else
         node.type = @mod.type_merge(types)
       end
+
+      false
     end
 
-    def end_visit(node : Virtual)
+    def visit(node : Virtual)
+      node.name.accept self
       node.type = check_type_in_type_args node.name.type.instance_type.virtual_type
+      false
     end
 
-    def end_visit(node : Metaclass)
-      node.type = node.name.type.virtual_type!.metaclass
+    def visit(node : Metaclass)
+      node.name.accept self
+      node.type = node.name.type.virtual_type.metaclass
+      false
+    end
+
+    def visit(node : Self)
+      the_self = (@scope || current_type)
+      if the_self.is_a?(Program)
+        node.raise "there's no self in this scope"
+      end
+
+      node.type = the_self.instance_type
     end
 
     def visit(node : Generic)
@@ -119,11 +155,11 @@ module Crystal
       if instance_type.variadic
         min_needed = instance_type.type_vars.size - 1
         if node.type_vars.size < min_needed
-          node.raise "wrong number of type vars for #{instance_type} (#{node.type_vars.size} for #{min_needed}..)"
+          node.wrong_number_of "type vars", instance_type, node.type_vars.size, "#{min_needed}+"
         end
       else
         if instance_type.type_vars.size != node.type_vars.size
-          node.raise "wrong number of type vars for #{instance_type} (#{node.type_vars.size} for #{instance_type.type_vars.size})"
+          node.wrong_number_of "type vars", instance_type, node.type_vars.size, instance_type.type_vars.size
         end
       end
 
@@ -166,11 +202,18 @@ module Crystal
         return_type = @mod.void
       end
 
-      external = External.for_fun(node.name, node.real_name, args, return_type, node.varargs, node.body, node)
-      external.doc = node.doc
-      check_ditto external
-
-      external.call_convention = call_convention
+      external = node.external?
+      had_external = external
+      if external && (body = node.body)
+        # This is the case where there's a body and we already have an external
+        # because we declared it in TopLevelVisitor
+        external.body = body
+      else
+        external = External.for_fun(node.name, node.real_name, args, return_type, node.varargs, node.body, node)
+        external.doc = node.doc
+        check_ditto external
+        external.call_convention = call_convention
+      end
 
       if node_body = node.body
         vars = MetaVars.new
@@ -181,7 +224,7 @@ module Crystal
         end
         external.set_type(nil)
 
-        visitor = TypeVisitor.new(@mod, vars, external)
+        visitor = MainVisitor.new(@mod, vars, external)
         visitor.untyped_def = external
         visitor.scope = @mod
         visitor.block_nest = @block_nest
@@ -201,21 +244,23 @@ module Crystal
         external.set_type(return_type)
       end
 
-      external.raises = true if node.has_attribute?("Raises")
+      unless had_external
+        external.raises = true if node.has_attribute?("Raises")
 
-      begin
-        old_external = current_type.add_def external
-      rescue ex : Crystal::Exception
-        node.raise ex.message
-      end
+        begin
+          old_external = current_type.add_def external
+        rescue ex : Crystal::Exception
+          node.raise ex.message
+        end
 
-      if old_external.is_a?(External)
-        old_external.dead = true
-      end
+        if old_external.is_a?(External)
+          old_external.dead = true
+        end
 
-      if node.body
-        key = DefInstanceKey.new external.object_id, external.args.map(&.type), nil, nil
-        current_type.add_def_instance key, external
+        if current_type.is_a?(Program)
+          key = DefInstanceKey.new external.object_id, external.args.map(&.type), nil, nil
+          current_type.add_def_instance key, external
+        end
       end
 
       node.type = @mod.nil
@@ -330,7 +375,7 @@ module Crystal
           if create_modules_if_missing
             next_type = base_lookup
             node.names.each do |name|
-              next_type = lookup_type base_lookup, [name], node
+              next_type = lookup_type base_lookup, [name], node, lookup_in_container: false
               if next_type
                 if next_type.is_a?(ASTNode)
                   node.raise "execpted #{name} to be a type"
@@ -356,8 +401,8 @@ module Crystal
       {target_type, similar_name}
     end
 
-    def lookup_type(base_type, names, node)
-      base_type.lookup_type names
+    def lookup_type(base_type, names, node, lookup_in_container = true)
+      base_type.lookup_type names, lookup_in_container: lookup_in_container
     rescue ex
       node.raise ex.message
     end
@@ -425,10 +470,14 @@ module Crystal
       end
     end
 
-    def expand_macro(node, raise_on_missing_const = true)
+    def expand_macro(node, raise_on_missing_const = true, first_pass = false)
       if expanded = node.expanded
         @exp_nest -= 1
-        expanded.accept self
+        begin
+          expanded.accept self
+        rescue ex : Crystal::Exception
+          node.raise "expanding macro", ex
+        end
         @exp_nest += 1
         return true
       end
@@ -453,12 +502,25 @@ module Crystal
 
       return false unless the_macro
 
-      @exp_nest -= 1
-
-      generated_nodes = expand_macro(the_macro, node) do
-        @mod.expand_macro the_macro, node, (macro_scope || @scope || current_type)
+      # If we find a macro outside a def/block and this is not the first pass it means that the
+      # macro was defined before we first found this call, so it's an error
+      # (we must analyze the macro expansion in all passes)
+      if !@typed_def && !@block && !first_pass
+        node.raise "macro '#{node.name}' must be defined before this point but is defined later"
       end
 
+      expansion_scope = (macro_scope || @scope || current_type)
+
+      args = expand_macro_arguments(node, expansion_scope)
+
+      @exp_nest -= 1
+      generated_nodes = expand_macro(the_macro, node) do
+        old_args = node.args
+        node.args = args
+        expanded = @mod.expand_macro the_macro, node, expansion_scope
+        node.args = old_args
+        expanded
+      end
       @exp_nest += 1
 
       node.expanded = generated_nodes
@@ -488,6 +550,35 @@ module Crystal
       generated_nodes
     end
 
+    def expand_macro_arguments(node, expansion_scope)
+      # If any argument is a MacroExpression, solve it first and
+      # replace Path with Const/TypeNode if it denotes such thing
+      args = node.args
+      if args.any? &.is_a?(MacroExpression)
+        @exp_nest -= 1
+        args = args.map do |arg|
+          if arg.is_a?(MacroExpression)
+            arg.accept self
+            expanded = arg.expanded.not_nil!
+            if expanded.is_a?(Path)
+              expanded_type = expansion_scope.lookup_type(expanded)
+              case expanded_type
+              when Const
+                expanded = expanded_type.value
+              when Type
+                expanded = TypeNode.new(expanded_type)
+              end
+            end
+            expanded
+          else
+            arg
+          end
+        end
+        @exp_nest += 1
+      end
+      args
+    end
+
     def visit(node : MacroExpression)
       expand_inline_macro node
     end
@@ -502,7 +593,11 @@ module Crystal
 
     def expand_inline_macro(node)
       if expanded = node.expanded
-        expanded.accept self
+        begin
+          expanded.accept self
+        rescue ex : Crystal::Exception
+          node.raise "expanding macro", ex
+        end
         return false
       end
 
@@ -530,6 +625,7 @@ module Crystal
           end
         end
         node.attributes = attributes
+        attributes
       end
     end
 
@@ -567,10 +663,11 @@ module Crystal
       type
     end
 
-    def interpret_enum_value(node : NumberLiteral, target_type)
+    def interpret_enum_value(node : NumberLiteral, target_type = nil)
       case node.kind
       when :i8, :i16, :i32, :i64, :u8, :u16, :u32, :u64, :i64
-        case target_type.kind
+        target_kind = target_type.try(&.kind) || node.kind
+        case target_kind
         when :i8  then node.value.to_i8? || node.raise "invalid Int8: #{node.value}"
         when :u8  then node.value.to_u8? || node.raise "invalid UInt8: #{node.value}"
         when :i16 then node.value.to_i16? || node.raise "invalid Int16: #{node.value}"
@@ -580,14 +677,14 @@ module Crystal
         when :i64 then node.value.to_i64? || node.raise "invalid Int64: #{node.value}"
         when :u64 then node.value.to_u64? || node.raise "invalid UInt64: #{node.value}"
         else
-          node.raise "enum type must be an integer, not #{target_type.kind}"
+          node.raise "enum type must be an integer, not #{target_kind}"
         end
       else
         node.raise "constant value must be an integer, not #{node.kind}"
       end
     end
 
-    def interpret_enum_value(node : Call, target_type)
+    def interpret_enum_value(node : Call, target_type = nil)
       obj = node.obj
       unless obj
         node.raise "invalid constant value"
@@ -634,7 +731,7 @@ module Crystal
       end
     end
 
-    def interpret_enum_value(node : Path, target_type)
+    def interpret_enum_value(node : Path, target_type = nil)
       type = resolve_ident(node)
       case type
       when Const
@@ -644,7 +741,7 @@ module Crystal
       end
     end
 
-    def interpret_enum_value(node : ASTNode, target_type)
+    def interpret_enum_value(node : ASTNode, target_type = nil)
       node.raise "invalid constant value"
     end
 
@@ -666,7 +763,7 @@ module Crystal
         end
 
         if attr.args.size != 1
-          attr.raise "wrong number of arguments for attribute CallConvention (#{attr.args.size} for 1)"
+          attr.wrong_number_of_arguments "attribute CallConvention", attr.args.size, 1
         end
 
         call_convention_node = attr.args.first
@@ -684,6 +781,43 @@ module Crystal
       end
 
       call_convention
+    end
+
+    def check_declare_var_type(node)
+      type = node.declared_type.type.instance_type
+
+      if type.is_a?(GenericClassType)
+        node.raise "can't declare variable of generic non-instantiated type #{type}"
+      end
+
+      Crystal.check_type_allowed_in_generics(node, type, "can't use #{type} as a Proc argument type")
+
+      type
+    end
+
+    def check_declare_var_type(node, declared_type)
+      type = declared_type.instance_type
+
+      if type.is_a?(GenericClassType)
+        node.raise "can't declare variable of generic non-instantiated type #{type}"
+      end
+
+      Crystal.check_type_allowed_in_generics(node, type, "can't use #{type} as a Proc argument type")
+
+      declared_type
+    end
+
+    def class_var_owner(node)
+      scope = (@scope || current_type).class_var_owner
+      if scope.is_a?(Program)
+        node.raise "can't use class variables at the top level"
+      end
+
+      if scope.is_a?(GenericClassType) || scope.is_a?(GenericModuleType)
+        node.raise "can't use class variables in generic types"
+      end
+
+      scope as ClassVarContainer
     end
 
     def inside_exp?

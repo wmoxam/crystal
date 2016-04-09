@@ -19,7 +19,12 @@ class Deque(T)
   # [234---01] @start = 6, size = 5, @capacity = 8
   # (this Deque has 5 items, each equal to their index)
 
+  @start : Int32
   @start = 0
+
+  @size : Int32
+  @capacity : Int32
+  @buffer : T*
 
   # Creates a new empty Deque
   def initialize
@@ -207,6 +212,27 @@ class Deque(T)
       push x
     end
     self
+  end
+
+  # Removes all items from `self` that are equal to *obj*.
+  #
+  # ```
+  # a = Deque{"a", "b", "b", "b", "c"}
+  # a.delete("b")
+  # a # => Deque{"a", "c"}
+  # ```
+  def delete(obj)
+    found = false
+    i = 0
+    while i < @size
+      if self[i] == obj
+        delete_at(i)
+        found = true
+      else
+        i += 1
+      end
+    end
+    found
   end
 
   # Delete the item that is present at the `index`. Items to the right of this one will have their indices decremented.
@@ -492,7 +518,7 @@ class Deque(T)
   #
   # For positive `n`, equivalent to `n.times { push(shift) }`.
   # For negative `n`, equivalent to `(-n).times { unshift(pop) }`.
-  def rotate!(n = 1 : Int)
+  def rotate!(n : Int = 1)
     if @size == @capacity
       @start = (@start + n) % @capacity
     else
@@ -640,6 +666,9 @@ class Deque(T)
   class ItemIterator(T)
     include Iterator(T)
 
+    @deque : Deque(T)
+    @index : Int32
+
     def initialize(@deque : Deque(T), @index = 0)
     end
 
@@ -658,6 +687,9 @@ class Deque(T)
   # :nodoc:
   class IndexIterator(T)
     include Iterator(Int32)
+
+    @deque : Deque(T)
+    @index : Int32
 
     def initialize(@deque : Deque(T), @index = 0)
     end

@@ -1,11 +1,12 @@
 require "event"
 
+# :nodoc:
 class Scheduler
-  @@runnables = [] of Fiber
+  @@runnables = Deque(Fiber).new
   @@eb = Event::Base.new
 
   def self.reschedule
-    if runnable = @@runnables.pop?
+    if runnable = @@runnables.shift?
       runnable.resume
     else
       @@loop_fiber.not_nil!.resume
@@ -13,6 +14,7 @@ class Scheduler
     nil
   end
 
+  @@loop_fiber : Fiber?
   @@loop_fiber = Fiber.new { @@eb.run_loop }
 
   def self.after_fork
@@ -25,7 +27,7 @@ class Scheduler
     end
   end
 
-  def self.create_fd_write_event(io : IO::FileDescriptor, edge_triggered = false : Bool)
+  def self.create_fd_write_event(io : IO::FileDescriptor, edge_triggered : Bool = false)
     flags = LibEvent2::EventFlags::Write
     flags |= LibEvent2::EventFlags::Persist | LibEvent2::EventFlags::ET if edge_triggered
     event = @@eb.new_event(io.fd, flags, io) do |s, flags, data|
@@ -40,7 +42,7 @@ class Scheduler
     event
   end
 
-  def self.create_fd_read_event(io : IO::FileDescriptor, edge_triggered = false : Bool)
+  def self.create_fd_read_event(io : IO::FileDescriptor, edge_triggered : Bool = false)
     flags = LibEvent2::EventFlags::Read
     flags |= LibEvent2::EventFlags::Persist | LibEvent2::EventFlags::ET if edge_triggered
     event = @@eb.new_event(io.fd, flags, io) do |s, flags, data|
@@ -65,6 +67,8 @@ class Scheduler
     event.add
     event
   end
+
+  @@dns_base : Event::DnsBase?
 
   private def self.dns_base
     @@dns_base ||= @@eb.new_dns_base

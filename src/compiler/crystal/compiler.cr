@@ -11,27 +11,37 @@ module Crystal
 
     CC = ENV["CC"]? || "cc"
 
-    record Source, filename, code
-    record Result, program, node, original_node
+    record Source,
+      filename : String,
+      code : String
 
-    property cross_compile_flags
-    property flags
-    property? debug
-    property? dump_ll
-    property link_flags
-    property mcpu
-    property? color
-    property? no_codegen
-    property n_threads
-    property prelude
-    property? release
-    property? single_module
-    property? stats
-    property target_triple
-    property? verbose
-    property? wants_doc
-    property emit
-    property original_output_filename
+    record Result,
+      program : Program,
+      node : ASTNode,
+      original_node : ASTNode
+
+    property cross_compile_flags : String?
+    property flags : Array(String)
+    property? debug : Bool
+    property? dump_ll : Bool
+    property link_flags : String?
+    property mcpu : String?
+    property? color : Bool
+    property? no_codegen : Bool
+    property n_threads : Int32
+    property prelude : String
+    property? release : Bool
+    property? single_module : Bool
+    property? stats : Bool
+    property target_triple : String?
+    property? verbose : Bool
+    property? wants_doc : Bool
+    property emit : Array(String)?
+    property original_output_filename : String?
+
+    @target_machine : LLVM::TargetMachine?
+    @pass_manager_builder : LLVM::PassManagerBuilder?
+    @module_pass_manager : LLVM::ModulePassManager?
 
     def initialize
       @debug = false
@@ -83,7 +93,7 @@ module Crystal
       timing("Parse") do
         nodes = sources.map do |source|
           program.add_to_requires source.filename
-          parse source
+          parse(source) as ASTNode
         end
         node = Expressions.from(nodes)
 
@@ -115,9 +125,7 @@ module Crystal
     end
 
     private def infer_type(program, node)
-      timing("Type inference") do
-        program.infer_type node
-      end
+      program.infer_type node, @stats
     end
 
     private def check_bc_flags_changed(output_dir)
@@ -134,7 +142,7 @@ module Crystal
       bc_flags_changed
     end
 
-    private def codegen(program, node, sources, output_filename)
+    private def codegen(program : Program, node, sources, output_filename)
       lib_flags = program.lib_flags
 
       llvm_modules = timing("Codegen (crystal)") do
@@ -158,7 +166,7 @@ module Crystal
       if @cross_compile_flags
         cross_compile program, units, lib_flags, output_filename
       else
-        codegen units, lib_flags, output_filename
+        codegen units, lib_flags, output_filename, output_dir
       end
     end
 
@@ -185,13 +193,13 @@ module Crystal
       puts "#{CC} #{o_name} -o #{output_filename} #{@link_flags} #{lib_flags}"
     end
 
-    private def codegen(units, lib_flags, output_filename)
-      object_names = units.map &.object_name
+    private def codegen(units : Array(CompilationUnit), lib_flags, output_filename, output_dir)
+      object_names = units.map &.object_filename
       multithreaded = LLVM.start_multithreaded
 
       # First write bitcodes: it breaks if we paralellize it
       unless multithreaded
-        timing("Codegen (bitcode)") do
+        timing("Codegen (cyrstal)") do
           units.each &.write_bitcode
         end
       end
@@ -218,28 +226,40 @@ module Crystal
         error "can't use `#{output_filename}` as output filename because it's a directory"
       end
 
-      timing("Codegen (clang)") do
-        system %(#{CC} -o "#{output_filename}" "${@}" #{@link_flags} #{lib_flags}), object_names
+      output_filename = File.expand_path(output_filename)
+
+      timing("Codegen (linking)") do
+        Dir.cd(output_dir) do
+          system %(#{CC} -o "#{output_filename}" "${@}" #{@link_flags} #{lib_flags}), object_names
+        end
       end
     end
 
     private def codegen_many_units(units, target_triple, multithreaded)
       jobs_count = 0
+      wait_channel = Channel(Nil).new(@n_threads)
 
       while unit = units.pop?
-        fork { codegen_single_unit(unit, target_triple, multithreaded) }
-
+        fork_and_codegen_single_unit(unit, target_triple, multithreaded, wait_channel)
         jobs_count += 1
 
         if jobs_count >= @n_threads
-          LibC.waitpid(-1, out stat_loc, 0)
+          wait_channel.receive
           jobs_count -= 1
         end
       end
 
       while jobs_count > 0
-        LibC.waitpid(-1, out stat_loc_2, 0)
+        wait_channel.receive
         jobs_count -= 1
+      end
+    end
+
+    private def fork_and_codegen_single_unit(unit, target_triple, multithreaded, wait_channel)
+      spawn do
+        codegen_process = fork { codegen_single_unit(unit, target_triple, multithreaded) }
+        codegen_process.wait
+        wait_channel.send nil
       end
     end
 
@@ -293,7 +313,7 @@ module Crystal
     end
 
     private def system(command, args = nil)
-      puts command if verbose?
+      puts "#{command} #{args.join " "}" if verbose?
 
       ::system(command, args)
       unless $?.success?
@@ -308,12 +328,7 @@ module Crystal
     end
 
     private def timing(label)
-      if @stats
-        time = Time.now
-        value = yield
-        puts "#{label}: #{Time.now - time}"
-        value
-      else
+      Crystal.timing(label, @stats) do
         yield
       end
     end
@@ -323,8 +338,12 @@ module Crystal
     end
 
     class CompilationUnit
-      getter compiler
-      getter llvm_mod
+      getter compiler : Compiler
+      getter llvm_mod : LLVM::Module
+
+      @name : String
+      @output_dir : String
+      @bc_flags_changed : Bool
 
       def initialize(@compiler, type_name, @llvm_mod, @output_dir, @bc_flags_changed)
         type_name = "_main" if type_name == ""
@@ -401,7 +420,11 @@ module Crystal
       end
 
       def object_name
-        Crystal.relative_filename("#{@output_dir}/#{@name}.o")
+        Crystal.relative_filename("#{@output_dir}/#{object_filename}")
+      end
+
+      def object_filename
+        "#{@name}.o"
       end
 
       def bc_name
@@ -416,29 +439,5 @@ module Crystal
         "#{@output_dir}/#{@name}.ll"
       end
     end
-  end
-
-  def self.error(msg, color, exit_code = 1)
-    STDERR.print "Error: ".colorize.toggle(color).red.bold
-    STDERR.puts msg.colorize.toggle(color).bright
-    exit exit_code
-  end
-
-  def self.relative_filename(filename : String)
-    dir = Dir.current
-    if filename.starts_with?(dir)
-      filename = filename[dir.size..-1]
-      if filename.starts_with? "/"
-        ".#{filename}"
-      else
-        "./#{filename}"
-      end
-    else
-      filename
-    end
-  end
-
-  def self.relative_filename(filename)
-    filename
   end
 end

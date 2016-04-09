@@ -32,21 +32,7 @@ module Crystal
     end
   end
 
-  class While
-    property :ensure_exception_handler
-  end
-
-  class Block
-    property :ensure_exception_handler
-  end
-
-  class Call
-    property :ensure_exception_handler
-  end
-
   class Def
-    property :ensure_exception_handler
-
     def mangled_name(self_type)
       name = String.build do |str|
         str << "*"
@@ -104,22 +90,7 @@ module Crystal
         end
       end
 
-      # Windows only allows alphanumeric, dot, dollar and underscore
-      # for mangled names.
-      ifdef windows
-        name = name.gsub do |char|
-          case char
-          when '<', '>', '(', ')', '*', ':', ',', '#', ' '
-            "."
-          when '+'
-            ".."
-          else
-            char
-          end
-        end
-      end
-
-      name
+      Crystal.safe_mangling(name)
     end
 
     def varargs
@@ -128,6 +99,6 @@ module Crystal
   end
 
   class External
-    property abi_info
+    property abi_info : LLVM::ABI::FunctionType?
   end
 end

@@ -7,16 +7,23 @@ end
 class Fiber
   STACK_SIZE = 8 * 1024 * 1024
 
+  @@first_fiber : Fiber?
   @@first_fiber = nil
+
+  @@last_fiber : Fiber?
   @@last_fiber = nil
+
   @@stack_pool = [] of Void*
 
-  protected property :stack_top
-  protected property :stack_bottom
-  protected property :next_fiber
-  protected property :prev_fiber
+  @stack : Void*
+  @resume_event : Event::Event?
+  @proc : ->
+  protected property stack_top : Void*
+  protected property stack_bottom : Void*
+  protected property next_fiber : Fiber?
+  protected property prev_fiber : Fiber?
 
-  def initialize(&@proc)
+  def initialize(&@proc : ->)
     @stack = Fiber.allocate_stack
     @stack_bottom = @stack + STACK_SIZE
     fiber_main = ->(f : Fiber) { f.run }
@@ -55,7 +62,7 @@ class Fiber
   end
 
   def initialize
-    @proc = ->{}
+    @proc = Fiber.proc { }
     @stack = Pointer(Void).null
     @stack_top = get_stack_top
     @stack_bottom = LibGC.stackbottom
@@ -67,11 +74,12 @@ class Fiber
     @@stack_pool.pop? || LibC.mmap(nil, Fiber::STACK_SIZE,
       LibC::PROT_READ | LibC::PROT_WRITE,
       LibC::MAP_PRIVATE | LibC::MAP_ANON,
-      -1, LibC::SSizeT.new(0)).tap do |pointer|
+      -1, 0).tap do |pointer|
       raise Errno.new("Cannot allocate new fiber stack") if pointer == LibC::MAP_FAILED
       ifdef linux
         LibC.madvise(pointer, Fiber::STACK_SIZE, LibC::MADV_NOHUGEPAGE)
       end
+      LibC.mprotect(pointer, 4096, LibC::PROT_NONE)
     end
   end
 
@@ -86,10 +94,14 @@ class Fiber
 
   def run
     @proc.call
+  rescue ex
+    STDERR.puts "Unhandled exception:"
+    ex.inspect_with_backtrace STDERR
+    STDERR.flush
+  ensure
     @@stack_pool << @stack
 
     # Remove the current fiber from the linked list
-
     if prev_fiber = @prev_fiber
       prev_fiber.next_fiber = @next_fiber
     else
@@ -103,9 +115,7 @@ class Fiber
     end
 
     # Delete the resume event if it was used by `yield` or `sleep`
-    if event = @resume_event
-      event.free
-    end
+    @resume_event.try &.free
 
     Scheduler.reschedule
   end
@@ -183,13 +193,21 @@ class Fiber
     @@root
   end
 
-  @[ThreadLocal]
+  # TODO: Boehm GC doesn't scan thread local vars, so we can't use it yet
+  # @[ThreadLocal]
+  @@current : Fiber
   @@current = root
 
   def self.current
     @@current
   end
 
+  # TODO: we could do `Proc(Void).new {}`, but that currently types it as `Proc(Nil)`
+  protected def self.proc(&block : ->)
+    block
+  end
+
+  @@prev_push_other_roots : ->
   @@prev_push_other_roots = LibGC.get_push_other_roots
 
   # This will push all fibers stacks whenever the GC wants to collect some memory

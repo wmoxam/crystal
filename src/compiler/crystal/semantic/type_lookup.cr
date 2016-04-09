@@ -2,19 +2,30 @@ require "../types"
 
 module Crystal
   class TypeLookup < Visitor
-    getter! type
+    getter! type : Type
+    @root : Type
+    @self_type : Type
+    @raise : Bool
 
-    def self.lookup(root_type, node, self_type = root_type)
-      lookup = new root_type, self_type
+    def self.lookup(root_type, node, self_type = root_type, allow_typeof = true)
+      lookup = new root_type, self_type, allow_typeof: allow_typeof
       node.clone.accept lookup
       lookup.type.not_nil!
     end
 
-    def initialize(@root)
-      @self_type = @root
+    def self.lookup?(root_type, node, self_type = root_type, allow_typeof = true)
+      lookup = new root_type, self_type, raise: false, allow_typeof: allow_typeof
+      node.clone.accept lookup
+      lookup.type?
     end
 
-    def initialize(@root, @self_type)
+    def initialize(@root)
+      @self_type = @root
+      @raise = true
+      @allow_typeof = true
+    end
+
+    def initialize(@root, @self_type, @raise = true, @allow_typeof = true)
     end
 
     delegate program, @root
@@ -28,33 +39,42 @@ module Crystal
       if the_type && the_type.is_a?(Type)
         @type = the_type.remove_alias_if_simple
       else
-        TypeLookup.check_cant_infer_generic_type_parameter(@root, node)
+        TypeLookup.check_cant_infer_generic_type_parameter(@root, node) if @raise
 
-        node.raise("undefined constant #{node}")
+        node.raise("undefined constant #{node}") if @raise
       end
     end
 
     def visit(node : Union)
       types = node.types.map do |ident|
+        @type = nil
         ident.accept self
+        return false if !@raise && !@type
+
+        Crystal.check_type_allowed_in_generics(ident, type, "can't use #{type} in a union type")
+
         type
       end
       @type = program.type_merge(types)
       false
     end
 
-    def end_visit(node : Virtual)
+    def visit(node : Virtual)
+      node.name.accept self
       @type = type.instance_type.virtual_type
+      false
     end
 
-    def end_visit(node : Metaclass)
-      @type = type.metaclass.virtual_type
+    def visit(node : Metaclass)
+      node.name.accept self
+      @type = type.virtual_type.metaclass.virtual_type
+      false
     end
 
     def visit(node : Generic)
       node.name.accept self
 
-      instance_type = @type.not_nil!
+      instance_type = self.type
       unless instance_type.is_a?(GenericClassType)
         node.raise "#{instance_type} is not a generic class, it's a #{instance_type.type_desc}"
       end
@@ -62,23 +82,32 @@ module Crystal
       if instance_type.variadic
         min_needed = instance_type.type_vars.size - 1
         if node.type_vars.size < min_needed
-          node.raise "wrong number of type vars for #{instance_type} (#{node.type_vars.size} for #{min_needed}..)"
+          node.wrong_number_of "type vars", instance_type, node.type_vars.size, "#{min_needed}+"
         end
       else
         if instance_type.type_vars.size != node.type_vars.size
-          node.raise "wrong number of type vars for #{instance_type} (#{node.type_vars.size} for #{instance_type.type_vars.size})"
+          node.wrong_number_of "type vars", instance_type, node.type_vars.size, instance_type.type_vars.size
         end
       end
 
       type_vars = node.type_vars.map do |type_var|
-        type_var.accept self
-        @type.not_nil!.virtual_type as TypeVar
+        if type_var.is_a?(NumberLiteral)
+          type_var
+        else
+          @type = nil
+          type_var.accept self
+          return false if !@raise && !@type
+
+          Crystal.check_type_allowed_in_generics(type_var, type, "can't use #{type} as a generic type argument")
+
+          type.virtual_type
+        end as TypeVar
       end
 
       begin
         @type = instance_type.instantiate(type_vars)
       rescue ex : Crystal::Exception
-        node.raise ex.message
+        node.raise ex.message if @raise
       end
 
       false
@@ -89,12 +118,20 @@ module Crystal
       if inputs = node.inputs
         inputs.each do |input|
           input.accept self
+
+          Crystal.check_type_allowed_in_generics(input, type, "can't use #{type} as proc argument")
+
           types << type
         end
       end
 
       if output = node.output
+        @type = nil
         output.accept self
+        return false if !@raise && !@type
+
+        Crystal.check_type_allowed_in_generics(output, type, "can't use #{type} as proc return type")
+
         types << type
       else
         types << program.void
@@ -110,15 +147,19 @@ module Crystal
     end
 
     def visit(node : TypeOf)
+      unless @allow_typeof
+        node.raise "can't use 'typeof' here"
+      end
+
       meta_vars = MetaVars{"self": MetaVar.new("self", @self_type)}
-      visitor = TypeVisitor.new(program, meta_vars)
+      visitor = MainVisitor.new(program, meta_vars)
       node.expressions.each &.accept visitor
       @type = program.type_merge node.expressions
       false
     end
 
     def visit(node : Underscore)
-      node.raise "can't use underscore as generic type argument"
+      node.raise "can't use underscore as generic type argument" if @raise
     end
 
     def self.check_cant_infer_generic_type_parameter(scope, node : Path)
@@ -131,35 +172,35 @@ module Crystal
     end
   end
 
-  alias TypeIdSet = Set(Int32)
+  alias ObjectIdSet = Set(UInt64)
 
   class Type
-    def lookup_type(node : Path)
-      (node.global ? program : self).lookup_type(node.names)
+    def lookup_type(node : Path, lookup_in_container = true)
+      (node.global ? program : self).lookup_type(node.names, lookup_in_container: lookup_in_container)
     rescue ex
       node.raise ex.message
     end
 
-    def lookup_type(names : Array, already_looked_up = TypeIdSet.new, lookup_in_container = true)
+    def lookup_type(names : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
       raise "Bug: #{self} doesn't implement lookup_type"
     end
 
-    def lookup_type_in_parents(names : Array, already_looked_up = TypeIdSet.new, lookup_in_container = false)
+    def lookup_type_in_parents(names : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = false)
       raise "Bug: #{self} doesn't implement lookup_type_in_parents"
     end
   end
 
-  class ContainedType
-    def lookup_type(names : Array, already_looked_up = TypeIdSet.new, lookup_in_container = true)
-      return nil if already_looked_up.includes?(type_id)
+  class NamedType
+    def lookup_type(names : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
+      return nil if already_looked_up.includes?(object_id)
 
       if lookup_in_container
-        already_looked_up.add(type_id)
+        already_looked_up.add(object_id)
       end
 
       type = self
       names.each_with_index do |name, i|
-        next_type = type.types[name]?
+        next_type = type.types?.try &.[name]?
         if !next_type && i != 0
           next_type = type.lookup_type_in_parents(names[i..-1])
           if next_type
@@ -179,7 +220,7 @@ module Crystal
       lookup_in_container && container ? container.lookup_type(names, already_looked_up) : nil
     end
 
-    def lookup_type_in_parents(names : Array, already_looked_up = TypeIdSet.new, lookup_in_container = false)
+    def lookup_type_in_parents(names : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = false)
       parents.try &.each do |parent|
         match = parent.lookup_type(names, already_looked_up, lookup_in_container)
         if match.is_a?(Type)
@@ -191,7 +232,7 @@ module Crystal
   end
 
   module GenericType
-    def lookup_type(names : Array, already_looked_up = TypeIdSet.new, lookup_in_container = true)
+    def lookup_type(names : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
       # If we are Foo(T) and somebody looks up the type T, we return `nil` because we don't
       # know what type T is, and we don't want to continue search in the container
       if !names.empty? && type_vars.includes?(names[0])
@@ -202,7 +243,7 @@ module Crystal
   end
 
   class GenericClassInstanceType
-    def lookup_type(names : Array, already_looked_up = TypeIdSet.new, lookup_in_container = true)
+    def lookup_type(names : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
       if !names.empty? && (type_var = type_vars[names[0]]?)
         case type_var
         when Var
@@ -227,7 +268,7 @@ module Crystal
   end
 
   class IncludedGenericModule
-    def lookup_type(names : Array, already_looked_up = TypeIdSet.new, lookup_in_container = true)
+    def lookup_type(names : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
       if (names.size == 1) && (m = @mapping[names[0]]?)
         case @including_class
         when GenericClassType, GenericModuleType
@@ -242,7 +283,7 @@ module Crystal
   end
 
   class InheritedGenericClass
-    def lookup_type(names : Array, already_looked_up = TypeIdSet.new, lookup_in_container = true)
+    def lookup_type(names : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
       if (names.size == 1) && (m = @mapping[names[0]]?)
         case extending_class
         when GenericClassType
@@ -257,32 +298,63 @@ module Crystal
   end
 
   class UnionType
-    def lookup_type(names : Array, already_looked_up = TypeIdSet.new, lookup_in_container = true)
+    def lookup_type(names : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
       raise "can't lookup type in union #{self}"
     end
   end
 
   class TypeDefType
-    delegate lookup_type, typedef
+    def lookup_type(node : Path, lookup_in_container = true)
+      typedef.lookup_type(node, lookup_in_container: lookup_in_container)
+    end
+
+    def lookup_type(node : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
+      typedef.lookup_type(node, already_looked_up: already_looked_up, lookup_in_container: lookup_in_container)
+    end
   end
 
   class MetaclassType
-    delegate lookup_type, instance_type
+    def lookup_type(node : Path, lookup_in_container = true)
+      instance_type.lookup_type(node, lookup_in_container: lookup_in_container)
+    end
+
+    def lookup_type(node : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
+      instance_type.lookup_type(node, already_looked_up: already_looked_up, lookup_in_container: lookup_in_container)
+    end
   end
 
   class GenericClassInstanceMetaclassType
-    delegate lookup_type, instance_type
+    def lookup_type(node : Path, lookup_in_container = true)
+      instance_type.lookup_type(node, lookup_in_container: lookup_in_container)
+    end
+
+    def lookup_type(node : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
+      instance_type.lookup_type(node, already_looked_up: already_looked_up, lookup_in_container: lookup_in_container)
+    end
   end
 
   class VirtualType
-    delegate lookup_type, base_type
+    def lookup_type(node : Path, lookup_in_container = true)
+      base_type.lookup_type(node, lookup_in_container: lookup_in_container)
+    end
+
+    def lookup_type(node : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
+      base_type.lookup_type(node, already_looked_up: already_looked_up, lookup_in_container: lookup_in_container)
+    end
   end
 
   class VirtualMetaclassType
-    delegate lookup_type, instance_type
+    def lookup_type(node : Path, lookup_in_container = true)
+      instance_type.lookup_type(node, lookup_in_container: lookup_in_container)
+    end
+
+    def lookup_type(node : Array, already_looked_up = ObjectIdSet.new, lookup_in_container = true)
+      instance_type.lookup_type(node, already_looked_up: already_looked_up, lookup_in_container: lookup_in_container)
+    end
   end
 
   class AliasType
     delegate types, aliased_type
+    delegate types?, aliased_type
   end
 end

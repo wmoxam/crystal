@@ -1,6 +1,15 @@
 # :nodoc:
-struct String::Formatter
-  def initialize(string, @args, @io)
+struct String::Formatter(A)
+  @args : A
+  @io : IO
+  @reader : Char::Reader
+  @arg_index : Int32
+  @temp_buf_len : Int32
+  @format_buf_len : Int32
+  @format_buf : Pointer(UInt8)?
+  @temp_buf : Pointer(UInt8)?
+
+  def initialize(string, @args : A, @io)
     @reader = Char::Reader.new(string)
     @arg_index = 0
     @temp_buf_len = 0
@@ -104,27 +113,45 @@ struct String::Formatter
   end
 
   private def consume_width(flags)
-    if '1' <= current_char <= '9'
+    case current_char
+    when '1'..'9'
       num, size = consume_number
       flags.width = num
-      flags.width_size = size
+      flags.width_size
+    when '*'
+      flags.width = consume_dynamic_value
+      flags.width_size = 1
     end
     flags
   end
 
   private def consume_precision(flags)
     if current_char == '.'
-      next_char
-      if '1' <= current_char <= '9'
+      case next_char
+      when '1'..'9'
         num, size = consume_number
         flags.precision = num
-        flags.precision_size = size + 1
+        flags.precision_size = size
+      when '*'
+        flags.precision = consume_dynamic_value
+        flags.precision_size = 1
       else
         flags.precision = 0
         flags.precision_size = 1
       end
     end
     flags
+  end
+
+  private def consume_dynamic_value
+    value = current_arg
+    if value.is_a?(Int)
+      next_char
+      next_arg
+      value.to_i
+    else
+      raise ArgumentError.new("expected dynamic value '*' to be an Int - #{value.inspect} (#{value.class.inspect})")
+    end
   end
 
   private def consume_number
@@ -175,6 +202,8 @@ struct String::Formatter
   def string(flags, arg, arg_specified)
     arg = next_arg unless arg_specified
 
+    arg = arg.to_s[0...(flags.precision || arg.to_s.size)]
+
     pad arg.to_s.size, flags if flags.left_padding?
     @io << arg
     pad arg.to_s.size, flags if flags.right_padding?
@@ -216,7 +245,7 @@ struct String::Formatter
   def float(flags, arg, arg_specified)
     arg = next_arg unless arg_specified
 
-    if arg.responds_to?(:to_f)
+    if arg.responds_to?(:to_f64)
       float = arg.is_a?(Float64) ? arg : arg.to_f64
 
       format_buf = recreate_float_format_string(flags)
@@ -323,9 +352,9 @@ struct String::Formatter
   end
 
   struct Flags
-    property space, sharp, plus, minus, zero, base
-    property width, width_size
-    property type, precision, precision_size
+    property space : Bool, sharp : Bool, plus : Bool, minus : Bool, zero : Bool, base : Int32
+    property width : Int32, width_size : Int32
+    property type : Char, precision : Int32?, precision_size : Int32
 
     def initialize
       @space = @sharp = @plus = @minus = @zero = false

@@ -43,15 +43,15 @@ module Crystal
     def initialize(loc : Location)
       f = loc.filename
       if f.is_a?(String)
-        self.line = loc.line_number
-        self.column = loc.column_number
-        self.filename = f
+        @line = loc.line_number
+        @column = loc.column_number
+        @filename = f
       elsif f.is_a?(VirtualFile)
         macro_location = f.macro.location.not_nil!
-        self.macro = f.macro.name
-        self.filename = macro_location.filename.to_s
-        self.line = macro_location.line_number + loc.line_number
-        self.column = loc.column_number
+        @macro = f.macro.name
+        @filename = macro_location.filename.to_s
+        @line = macro_location.line_number + loc.line_number
+        @column = loc.column_number
       else
         raise "not implemented"
       end
@@ -84,15 +84,16 @@ module Crystal
   end
 
   class ImplementationsVisitor < Visitor
-    getter locations
+    getter locations : Array(Location)
+    @target_location : Location
 
     def initialize(@target_location)
       @locations = [] of Location
     end
 
     def process_type(type)
-      if type.is_a?(ContainedType)
-        type.types.values.each do |inner_type|
+      if type.is_a?(NamedType)
+        type.types?.try &.values.each do |inner_type|
           process_type(inner_type)
         end
       end
@@ -119,7 +120,7 @@ module Crystal
         typed_def.accept(self)
       end
 
-      result.program.types.values.each do |type|
+      result.program.types?.try &.values.each do |type|
         process_type type
       end
 

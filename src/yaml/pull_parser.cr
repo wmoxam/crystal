@@ -1,4 +1,7 @@
 class YAML::PullParser
+  @parser : LibYAML::Parser*
+  @event : LibYAML::Event
+
   def initialize(content)
     @parser = Pointer(Void).malloc(LibYAML::PARSER_SIZE) as LibYAML::Parser*
     @event = LibYAML::Event.new
@@ -12,6 +15,11 @@ class YAML::PullParser
 
   def kind
     @event.type
+  end
+
+  def tag
+    ptr = @event.data.scalar.tag
+    ptr ? String.new(ptr) : nil
   end
 
   def value

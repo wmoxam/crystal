@@ -1,11 +1,11 @@
 require "../syntax/ast"
-require "simple_hash"
 
-# TODO: 100 is a pretty big number for the number of nested generic instantiations,
+# TODO: 10 is a pretty big number for the number of nested generic instantiations,
+# (think Array(Array(Array(Array(Array(Array(Array(Array(Array(Array(Array(...))))))))))
 # but we might want to implement an algorithm that correctly identifies this
 # infinite recursion.
 private def generic_type_too_nested?(nest_level)
-  nest_level > 100
+  nest_level > 10
 end
 
 module Crystal
@@ -17,13 +17,15 @@ module Crystal
   end
 
   class ASTNode
-    property! type
-    property! dependencies
-    property freeze_type
-    property observers
-    property input_observers
+    property! dependencies : Dependencies
+    property freeze_type : Type?
+    property observers : Dependencies?
+    property input_observer : Call?
 
+    @dirty : Bool
     @dirty = false
+
+    @type : Type?
 
     def type
       @type || ::raise "Bug: `#{self}` at #{self.location} has no type"
@@ -35,15 +37,8 @@ module Crystal
 
     def set_type(type : Type)
       type = type.remove_alias_if_simple
-      if !type.no_return? && (freeze_type = @freeze_type) && !freeze_type.is_restriction_of_all?(type)
-        if !freeze_type.includes_type?(type.program.nil) && type.includes_type?(type.program.nil)
-          # This means that an instance variable become nil
-          if self.is_a?(MetaInstanceVar) && (nil_reason = self.nil_reason)
-            inner = MethodTraceException.new(nil, [] of ASTNode, nil_reason)
-          end
-        end
-
-        raise "type must be #{freeze_type}, not #{type}", inner, Crystal::FrozenTypeException
+      if !type.no_return? && (freeze_type = @freeze_type) && !type.implements?(freeze_type)
+        raise_frozen_type freeze_type, type, self
       end
       @type = type
     end
@@ -66,6 +61,25 @@ module Crystal
         from.raise ex.message, ex.inner
       else
         ::raise ex
+      end
+    end
+
+    def raise_frozen_type(freeze_type, invalid_type, from)
+      if !freeze_type.includes_type?(invalid_type.program.nil) && invalid_type.includes_type?(invalid_type.program.nil)
+        # This means that an instance variable become nil
+        if self.is_a?(MetaTypeVar) && (nil_reason = self.nil_reason)
+          inner = MethodTraceException.new(nil, [] of ASTNode, nil_reason)
+        end
+      end
+
+      if self.is_a?(MetaTypeVar)
+        if self.global?
+          from.raise "global variable '#{self.name}' must be #{freeze_type}, not #{invalid_type}", inner, Crystal::FrozenTypeException
+        else
+          from.raise "#{self.kind} variable '#{self.name}' of #{self.owner} must be #{freeze_type}, not #{invalid_type}", inner, Crystal::FrozenTypeException
+        end
+      else
+        from.raise "type must be #{freeze_type}, not #{invalid_type}", inner, Crystal::FrozenTypeException
       end
     end
 
@@ -100,6 +114,13 @@ module Crystal
     end
 
     def bind(from = nil)
+      # Quick check to provide a better error message when assigning a type
+      # to a variable whose type is frozen
+      if self.is_a?(MetaTypeVar) && (freeze_type = self.freeze_type) && from &&
+         (from_type = from.type?) && !from_type.implements?(freeze_type)
+        raise_frozen_type freeze_type, from_type, from
+      end
+
       dependencies = @dependencies ||= Dependencies.new
 
       node = yield dependencies
@@ -144,8 +165,8 @@ module Crystal
     end
 
     def add_observer(observer)
-      observers = (@observers ||= [] of ASTNode)
-      observers << observer
+      observers = (@observers ||= Dependencies.new)
+      observers.push observer
     end
 
     def remove_observer(observer)
@@ -153,19 +174,19 @@ module Crystal
     end
 
     def add_input_observer(observer)
-      input_observers = (@input_observers ||= [] of Call)
-      input_observers << observer
+      raise "Bug: already had input observer" if @input_observer
+      @input_observer = observer
     end
 
     def remove_input_observer(observer)
-      @input_observers.try &.reject! &.same?(observer)
+      @input_observer = nil if @input_observer.same?(observer)
     end
 
     def notify_observers
       @observers.try &.each &.update self
-      @input_observers.try &.each &.update_input self
+      @input_observer.try &.update_input self
       @observers.try &.each &.propagate
-      @input_observers.try &.each &.propagate
+      @input_observer.try &.propagate
     end
 
     def update(from)
@@ -201,13 +222,6 @@ module Crystal
       ::raise exception_type.for_node(self, message, inner)
     end
 
-    def visibility=(visibility)
-    end
-
-    def visibility
-      nil
-    end
-
     def find_owner_trace(owner)
       owner_trace = [] of ASTNode
       node = self
@@ -218,7 +232,7 @@ module Crystal
         dependencies = deps.select { |dep| dep.type? && dep.type.includes_type?(owner) && !visited.includes?(dep.object_id) }
         if dependencies.size > 0
           node = dependencies.first
-          nil_reason = node.nil_reason if node.is_a?(MetaInstanceVar)
+          nil_reason = node.nil_reason if node.is_a?(MetaTypeVar)
           owner_trace << node if node
           visited.add node.object_id
         else
@@ -230,37 +244,100 @@ module Crystal
     end
   end
 
-  class Def
-    property! :owner
-    property! :original_owner
-    property :vars
-    property :yield_vars
+  # Fictitious node to represent primitives
+  class Primitive < ASTNode
+    getter name : Symbol
 
-    property :raises
+    def initialize(@name : Symbol, @type : Type? = nil)
+    end
+
+    def clone_without_location
+      Primitive.new(@name, @type)
+    end
+
+    def_equals_and_hash name
+  end
+
+  # Fictitious node to represent a tuple indexer
+  class TupleIndexer < Primitive
+    getter index : Int32
+
+    def initialize(@index : Int32)
+      super(:tuple_indexer_known_index)
+    end
+
+    def clone_without_location
+      TupleIndexer.new(index)
+    end
+
+    def_equals_and_hash index
+  end
+
+  # Fictitious node to represent a type
+  class TypeNode < ASTNode
+    def initialize(@type : Type)
+    end
+
+    def to_macro_id
+      @type.to_s
+    end
+
+    def clone_without_location
+      self
+    end
+
+    def_equals_and_hash type
+  end
+
+  class Arg
+    def clone_without_location
+      arg = previous_def
+
+      # An arg's type can sometimes be used as a restriction,
+      # and must be preserved when cloned
+      arg.set_type @type
+
+      arg
+    end
+  end
+
+  class Def
+    property! owner : Type
+    property! original_owner : Type
+    property vars : MetaVars?
+    property yield_vars : Array(Var)?
+
+    getter raises : Bool
     @raises = false
 
-    property closure
+    property closure : Bool
     @closure = false
 
-    property :self_closured
+    property self_closured : Bool
     @self_closured = false
 
-    property :previous
-    property :next
-    property :visibility
-    getter :special_vars
+    property previous : DefWithMetadata?
+    property next : Def?
 
-    property :block_nest
+    getter special_vars : Set(String)?
+
+    property block_nest : Int32
     @block_nest = 0
 
-    property? :captured_block
+    property? captured_block : Bool
     @captured_block = false
+
+    @macro_owner : Type?
 
     def macro_owner=(@macro_owner)
     end
 
     def macro_owner
       @macro_owner || @owner
+    end
+
+    def macro_owner?
+      @macro_owner
     end
 
     def add_special_var(name)
@@ -277,6 +354,13 @@ module Crystal
           end
         end
       end
+    end
+
+    def clone_without_location
+      a_def = previous_def
+      a_def.raises = raises
+      a_def.previous = previous
+      a_def
     end
   end
 
@@ -312,7 +396,7 @@ module Crystal
   end
 
   class TypeOf
-    property in_type_args
+    property in_type_args : Bool
     @in_type_args = false
 
     def map_type(type)
@@ -336,7 +420,7 @@ module Crystal
   end
 
   class Cast
-    property? upcast
+    property? upcast : Bool
     @upcast = false
 
     def self.apply(node : ASTNode, type : Type)
@@ -381,14 +465,14 @@ module Crystal
   end
 
   class FunDef
-    property! external
+    property! external : External
   end
 
   class FunLiteral
-    property :force_void
+    property force_void : Bool
     @force_void = false
 
-    property :expected_return_type
+    property expected_return_type : Type?
 
     def update(from = nil)
       return unless self.def.args.all? &.type?
@@ -398,20 +482,24 @@ module Crystal
       return_type = @force_void ? self.def.type.program.void : self.def.type
 
       expected_return_type = @expected_return_type
-      if expected_return_type && !expected_return_type.void? && expected_return_type != return_type
-        raise "expected new to return #{expected_return_type}, not #{return_type}"
+      if expected_return_type && !expected_return_type.void? && !return_type.implements?(expected_return_type)
+        raise "expected block to return #{expected_return_type.devirtualize}, not #{return_type}"
       end
 
-      types << return_type
+      types << (expected_return_type || return_type)
 
       self.type = self.def.type.program.fun_of(types)
+    end
+
+    def return_type
+      (@type as FunInstanceType).return_type
     end
   end
 
   class Generic
-    property! instance_type
-    property scope
-    property in_type_args
+    property! instance_type : GenericClassType
+    property scope : Type?
+    property in_type_args : Bool
     @in_type_args = false
 
     def update(from = nil)
@@ -436,9 +524,10 @@ module Crystal
               # Try to interpret the value
               visitor = target_const.visitor
               if visitor
-                numeric_value = visitor.interpret_enum_value(value, node_type.program.int32)
-                type_var = NumberLiteral.new(numeric_value, :i32)
-                type_var.set_type_from(node_type.program.int32, from)
+                numeric_value = visitor.interpret_enum_value(value)
+                numeric_type = node_type.program.int?(numeric_value) || raise "Bug: expected integer type, not #{numeric_value.class}"
+                type_var = NumberLiteral.new(numeric_value, numeric_type.kind)
+                type_var.set_type_from(numeric_type, from)
               else
                 node.raise "can't use constant #{node} (value = #{value}) as generic type argument, it must be a numeric constant"
               end
@@ -468,7 +557,7 @@ module Crystal
   end
 
   class TupleLiteral
-    property! :mod
+    property! mod : Program
 
     def update(from = nil)
       return unless elements.all? &.type?
@@ -484,26 +573,41 @@ module Crystal
     end
   end
 
+  class Not
+    def update(from = nil)
+      exp_type = exp.type?
+      return unless exp_type
+
+      if exp_type.no_return?
+        self.type = exp_type
+      else
+        self.type = exp_type.program.bool
+      end
+    end
+  end
+
   class MetaVar < ASTNode
-    property :name
+    include SpecialVar
+
+    property name : String
 
     # True if we need to mark this variable as nilable
     # if this variable is read.
-    property :nil_if_read
+    property nil_if_read : Bool
 
     # This is the context of the variable: who allocates it.
     # It can either be the Program (for top level variables),
     # a Def or a Block.
-    property :context
+    property context : ASTNode | NonGenericModuleType | Nil
 
     # A variable is closured if it's used in a FunLiteral context
     # where it wasn't created.
-    property :closured
+    property closured : Bool
 
     # Is this metavar assigned a value?
-    property :assigned_to
+    property assigned_to : Bool
 
-    def initialize(@name, @type = nil)
+    def initialize(@name : String, @type : Type? = nil)
       @nil_if_read = false
       @closured = false
       @assigned_to = false
@@ -540,44 +644,72 @@ module Crystal
     end
   end
 
-  alias MetaVars = SimpleHash(String, MetaVar)
+  alias MetaVars = Hash(String, MetaVar)
 
-  class MetaInstanceVar < Var
-    property :nil_reason
+  # A variable belonging to a type: a global,
+  # class or instance variable (globals belong to the program).
+  class MetaTypeVar < Var
+    property nil_reason : NilReason?
+
+    # The owner of this variable, useful for showing good
+    # error messages.
+    property! owner : Type
+
+    # Is this variable thread local? Only applicable
+    # to global and class variables.
+    property? thread_local : Bool
+    @thread_local = false
+
+    def kind
+      case name[0]
+      when '@'
+        if name[1] == '@'
+          :class
+        else
+          :instance
+        end
+      else
+        :global
+      end
+    end
+
+    def global?
+      kind == :global
+    end
   end
 
   class ClassVar
-    property! owner
-    property! var
-    property! class_scope
+    # The "real" variable associated with this node,
+    # belonging to a type.
+    property! var : MetaTypeVar
+  end
 
-    @class_scope = false
+  class Global
+    property! var : MetaTypeVar
   end
 
   class Path
-    property target_const
-    property syntax_replacement
+    property target_const : Const?
+    property syntax_replacement : ASTNode?
   end
 
   class Call
-    property :before_vars
-    property :visibility
+    property before_vars : MetaVars?
   end
 
   class Macro
-    property :visibility
   end
 
   class Block
-    property :visited
-    property :scope
-    property :vars
-    property :after_vars
-    property :context
-    property :fun_literal
-    property :call
+    property visited : Bool
+    property scope : Type?
+    property vars : MetaVars?
+    property after_vars : MetaVars?
+    property context : Def | NonGenericModuleType | Nil
+    property fun_literal : ASTNode?
 
     @visited = false
+    @break : Var?
 
     def break
       @break ||= Var.new("%break")
@@ -585,26 +717,26 @@ module Crystal
   end
 
   class While
-    property :has_breaks
-    property :break_vars
-
+    property has_breaks : Bool
     @has_breaks = false
+
+    property break_vars : Array(MetaVars)?
   end
 
   class Break
-    property! target
+    property! target : ASTNode
   end
 
   class Next
-    property! target
+    property! target : ASTNode
   end
 
   class Return
-    property! target
+    property! target : Def
   end
 
   class FunPointer
-    property! :call
+    property! call : Call
 
     def map_type(type)
       return nil unless call.type?
@@ -617,11 +749,11 @@ module Crystal
   end
 
   class IsA
-    property :syntax_replacement
+    property syntax_replacement : Call?
   end
 
   module ExpandableNode
-    property :expanded
+    property expanded : ASTNode?
   end
 
   {% for name in %w(And Or
@@ -634,7 +766,7 @@ module Crystal
   {% end %}
 
   module RuntimeInitializable
-    getter runtime_initializers
+    getter runtime_initializers : Array(ASTNode)?
 
     def add_runtime_initializer(node)
       initializers = @runtime_initializers ||= [] of ASTNode
@@ -645,17 +777,17 @@ module Crystal
   class ClassDef
     include RuntimeInitializable
 
-    property! resolved_type
-    property created_new_type
+    property! resolved_type : ClassType
+    property created_new_type : Bool
     @created_new_type = false
   end
 
   class ModuleDef
-    property! resolved_type
+    property! resolved_type : Type
   end
 
   class LibDef
-    property! resolved_type
+    property! resolved_type : LibType
   end
 
   class Include
@@ -675,47 +807,40 @@ module Crystal
   end
 
   class External
-    property :dead
+    property dead : Bool
     @dead = false
 
-    property :used
+    property used : Bool
     @used = false
 
-    property :call_convention
+    property call_convention : LLVM::CallConvention?
   end
 
   class EnumDef
-    property enum_type
-    property! resolved_type
+    property! resolved_type : EnumType
+    property created_new_type : Bool
+    @created_new_type = false
   end
 
   class Yield
-    property :expanded
+    property expanded : Call?
   end
 
   class Primitive
-    property :extra
+    property extra : ASTNode?
   end
 
   class NilReason
-    getter name
-    getter reason
-    getter nodes
-    getter scope
+    getter name : String
+    getter reason : Symbol
+    getter nodes : Array(ASTNode)?
+    getter scope : Type?
 
     def initialize(@name, @reason, @nodes = nil, @scope = nil)
     end
   end
 
-  {% for name in %w(Arg Var MetaVar) %}
-    class {{name.id}}
-      def special_var?
-        @name.starts_with? '$'
-      end
-    end
-  {% end %}
-
   class Asm
-    property ptrof
+    property ptrof : PointerOf?
   end
 end

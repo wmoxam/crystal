@@ -23,46 +23,47 @@ class Event::SignalHandler
     @@instance ||= new
   end
 
+  @callbacks : Hash(Signal, (Signal ->))
+  @read_pipe : IO::FileDescriptor
+  @write_pipe : IO::FileDescriptor
+
+  @@write_pipe : IO::FileDescriptor?
+
   def initialize
-    @callbacks = Hash(Signal, (Signal -> Void)).new
-    @pipes = IO.pipe
-    @@write_pipe = @pipes[1]
+    @callbacks = Hash(Signal, (Signal ->)).new
+    @read_pipe, @write_pipe = IO.pipe
+    @@write_pipe = @write_pipe
 
     spawn_reader
   end
 
   # :nodoc:
   def run
-    read_pipe = @pipes[0]
-    sig = 0
-    slice = Slice(UInt8).new pointerof(sig) as Pointer(UInt8), sizeof(typeof(sig))
+    read_pipe = @read_pipe
 
     loop do
-      bytes = read_pipe.read slice
-      break if bytes == 0
-      raise "bad read #{bytes} : #{slice.size}" if bytes != slice.size
+      sig = read_pipe.read_bytes(Int32)
       handle_signal Signal.new(sig)
     end
   end
 
   def after_fork
     close
-    @pipes = IO.pipe
-    @@write_pipe = @pipes[1]
+    @read_pipe, @write_pipe = IO.pipe
+    @@write_pipe = @write_pipe
     spawn_reader
   end
 
   def close
     # Close writer only: reader will give EOF
-    @pipes[1].close
+    @write_pipe.close
   end
 
   def add_handler(signal : Signal, callback)
     @callbacks[signal] = callback
 
-    LibC.signal signal.value, ->(sig) do
-      slice = Slice(UInt8).new pointerof(sig) as Pointer(UInt8), sizeof(typeof(sig))
-      @@write_pipe.not_nil!.write slice
+    LibC.signal signal.value, ->(sig : Int32) do
+      @@write_pipe.not_nil!.write_bytes sig
       nil
     end
   end

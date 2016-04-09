@@ -1,5 +1,13 @@
 class Crystal::Doc::Generator
-  getter program
+  getter program : Program
+
+  @included_dirs : Array(String)
+  @dir : String
+  @base_dir : String
+  @types : Hash(Crystal::Type, Doc::Type)
+  @is_crystal_repository : Bool
+  @repo_name : String
+  @repository : String?
 
   def initialize(@program, @included_dirs, @dir = "./doc")
     @base_dir = `pwd`.chomp
@@ -20,6 +28,10 @@ class Crystal::Doc::Generator
     end
 
     generate_docs program_type, types
+  end
+
+  def program_type
+    type(@program)
   end
 
   def generate_docs(program_type, types)
@@ -165,7 +177,7 @@ class Crystal::Doc::Generator
   def collect_subtypes(parent)
     types = [] of Type
 
-    parent.types.each_value do |type|
+    parent.types?.try &.each_value do |type|
       case type
       when Const, LibType
         next
@@ -180,7 +192,7 @@ class Crystal::Doc::Generator
   def collect_constants(parent)
     types = [] of Constant
 
-    parent.type.types.each_value do |type|
+    parent.type.types?.try &.each_value do |type|
       if type.is_a?(Const) && must_include? type
         types << Constant.new(self, parent, type)
       end
@@ -248,7 +260,7 @@ class Crystal::Doc::Generator
     @repository = "https://github.com/#{user}/#{repo}/blob/#{rev}"
     @repo_name = "github.com/#{user}/#{repo}"
 
-    @is_crystal_repository ||= (user == "manastech" && repo == "crystal")
+    @is_crystal_repository ||= (user == "crystal-lang" && repo == "crystal")
   end
 
   def source_link(node)
@@ -286,7 +298,7 @@ class Crystal::Doc::Generator
     filename[@base_dir.size..-1]
   end
 
-  record RelativeLocation, filename, url
+  record RelativeLocation, filename : String, url : String?
   SRC_SEP = "src#{File::SEPARATOR}"
 
   def relative_locations(type)

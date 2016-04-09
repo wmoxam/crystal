@@ -1,9 +1,15 @@
 class LLVM::GenericValue
+  @unwrap : LibLLVM::GenericValueRef
+
   def initialize(@unwrap : LibLLVM::GenericValueRef)
   end
 
   def to_i
     LibLLVM.generic_value_to_int(self, 1)
+  end
+
+  def to_u64
+    to_i
   end
 
   def to_b

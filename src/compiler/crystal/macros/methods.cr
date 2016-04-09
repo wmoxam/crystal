@@ -1,3 +1,5 @@
+require "../semantic/ast"
+
 module Crystal
   class ASTNode
     def to_macro_id
@@ -50,7 +52,7 @@ module Crystal
 
     def interpret_check_args_size(method, args, size)
       unless args.size == size
-        raise "wrong number of arguments for #{method} (#{args.size} for #{size})"
+        wrong_number_of_arguments method, args.size, size
       end
     end
 
@@ -154,7 +156,7 @@ module Crystal
             raise "undefined method '~' for float literal: #{self}"
           end
         else
-          raise "wrong number of arguments for NumberLiteral#~ (#{args.size} for 0)"
+          wrong_number_of_arguments "NumberLiteral#~", args.size, 0
         end
       else
         super
@@ -190,7 +192,7 @@ module Crystal
 
     def bin_op(op, args)
       if args.size != 1
-        raise "wrong number of arguments for NumberLiteral##{op} (#{args.size} for 1)"
+        wrong_number_of_arguments "NumberLiteral##{op}", args.size, 1
       end
 
       other = args.first
@@ -330,7 +332,7 @@ module Crystal
 
           ArrayLiteral.map(@value.split(splitter)) { |value| StringLiteral.new(value) }
         else
-          raise "wrong number of arguments for split (#{args.size} for 0, 1)"
+          wrong_number_of_arguments "StringLiteral#split", args.size, "0..1"
         end
       when "starts_with?"
         interpret_one_arg_method(method, args) do |arg|
@@ -354,9 +356,9 @@ module Crystal
           arg = args.first
           raise "argument to StringLiteral#to_i must be a number, not #{arg.class_desc}" unless arg.is_a?(NumberLiteral)
 
-          value = @value.to_i64?(arg.to_number)
+          value = @value.to_i64?(arg.to_number.to_i)
         else
-          raise "wrong number of arguments for to_i (#{args.size} for 0, 1)"
+          wrong_number_of_arguments "StringLiteral#to_i", args.size, "0..1"
         end
 
         if value
@@ -488,7 +490,7 @@ module Crystal
             NilLiteral.new
           end
         else
-          raise "wrong number of arguments for [] (#{args.size} for 1)"
+          wrong_number_of_arguments "ArrayLiteral#[]", args.size, 1
         end
       when "unshift"
         case args.size
@@ -496,7 +498,7 @@ module Crystal
           elements.unshift(args.first)
           self
         else
-          raise "wrong number of arguments for push (#{args.size} for 1)"
+          wrong_number_of_arguments "ArrayLiteral#unshift", args.size, 1
         end
       when "push", "<<"
         case args.size
@@ -504,7 +506,7 @@ module Crystal
           elements << args.first
           self
         else
-          raise "wrong number of arguments for push (#{args.size} for 1)"
+          wrong_number_of_arguments "ArrayLiteral##{method}", args.size, 1
         end
       else
         super
@@ -544,7 +546,7 @@ module Crystal
           entry = entries.find &.key.==(key)
           entry.try(&.value) || NilLiteral.new
         else
-          raise "wrong number of arguments for [] (#{args.size} for 1)"
+          wrong_number_of_arguments "HashLiteral#[]", args.size, 1
         end
       when "[]="
         case args.size
@@ -560,7 +562,7 @@ module Crystal
 
           value
         else
-          raise "wrong number of arguments for []= (#{args.size} for 2)"
+          wrong_number_of_arguments "HashLiteral#[]=", args.size, 2
         end
       else
         super
@@ -591,7 +593,7 @@ module Crystal
             raise "tuple index out of bounds: #{index} in #{self}"
           end
         else
-          raise "wrong number of arguments for [] (#{args.size} for 1)"
+          wrong_number_of_arguments "TupleLiteral#[]", args.size, 1
         end
       else
         super
@@ -599,7 +601,7 @@ module Crystal
     end
   end
 
-  class MetaVar
+  class MetaVar < ASTNode
     def to_macro_id
       @name
     end
@@ -692,7 +694,16 @@ module Crystal
       when "receiver"
         receiver || Nop.new
       when "visibility"
-        SymbolLiteral.new(visibility ? visibility.to_s : "public")
+        visibility_name =
+          case visibility
+          when .private?
+            "private"
+          when .protected?
+            "protected"
+          else
+            "public"
+          end
+        SymbolLiteral.new(visibility_name)
       else
         super
       end
@@ -752,7 +763,7 @@ module Crystal
     def interpret(method, args, block, interpreter)
       case method
       when "abstract?"
-        interpret_argless_method(method, args) { BoolLiteral.new(type.abstract) }
+        interpret_argless_method(method, args) { BoolLiteral.new(type.abstract?) }
       when "union?"
         interpret_argless_method(method, args) { BoolLiteral.new(type.is_a?(UnionType)) }
       when "union_types"
@@ -795,7 +806,7 @@ module Crystal
           else
             raise "argument to has_attribtue? must be a StringLiteral or SymbolLiteral, not #{arg.class_desc}"
           end
-          BoolLiteral.new(type.has_attribute?(value))
+          BoolLiteral.new(!!type.has_attribute?(value))
         end
       when "size"
         interpret_argless_method(method, args) do
@@ -806,6 +817,8 @@ module Crystal
             raise "undefined method 'size' for TypeNode of type #{type} (must be a tuple type)"
           end
         end
+      when "class"
+        interpret_argless_method(method, args) { TypeNode.new(type.metaclass) }
       else
         super
       end
@@ -1005,6 +1018,15 @@ module Crystal
   end
 
   class Path
+    def interpret(method, args, block, interpreter)
+      case method
+      when "resolve"
+        interpret_argless_method(method, args) { interpreter.resolve(self) }
+      else
+        super
+      end
+    end
+
     def to_macro_id
       @names.join "::"
     end
@@ -1017,6 +1039,17 @@ module Crystal
         interpret_argless_method(method, args) { obj }
       when "to"
         interpret_argless_method(method, args) { to }
+      else
+        super
+      end
+    end
+  end
+
+  class Splat
+    def interpret(method, args, block, interpreter)
+      case method
+      when "exp"
+        interpret_argless_method(method, args) { exp }
       else
         super
       end

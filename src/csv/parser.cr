@@ -2,9 +2,14 @@
 #
 # Most of the time `CSV#parse` and `CSV#each_row` are more convenient.
 class CSV::Parser
+  @lexer : Lexer
+  @max_row_size : Int32
+
   # Creates a parser from a `String` or `IO`.
-  def initialize(string_or_io : String | IO)
-    @lexer = CSV::Lexer.new(string_or_io)
+  # Optionally takes the optional *separator* and *quote_char* arguments for
+  # specifying non-standard cell separators and quote characters
+  def initialize(string_or_io : String | IO, separator : Char = DEFAULT_SEPARATOR, quote_char : Char = DEFAULT_QUOTE_CHAR)
+    @lexer = CSV::Lexer.new(string_or_io, separator, quote_char)
     @max_row_size = 3
   end
 
@@ -15,7 +20,7 @@ class CSV::Parser
     rows
   end
 
-  # Yields each of the reamining rows as an `Array(String)`.
+  # Yields each of the remaining rows as an `Array(String)`.
   def each_row
     while row = next_row
       yield row
@@ -70,6 +75,8 @@ class CSV::Parser
   # :nodoc:
   struct RowIterator
     include Iterator(Array(String))
+
+    @parser : Parser
 
     def initialize(@parser)
     end

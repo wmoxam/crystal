@@ -57,16 +57,25 @@ class Crystal::CodeGenVisitor
     call_args = Array(LLVM::Value).new(node.args.size + 1)
     old_needs_value = @needs_value
 
-    # First self.
-    if (obj = node.obj) && obj.type.passed_as_self?
+    obj = node.obj
+
+    # Always accept obj: even if it's not passed as self this might
+    # involve intermerdiate calls with side effects.
+    if obj
       @needs_value = true
       accept obj
-      call_args << downcast(@last, target_def.owner, obj.type, true)
-    elsif owner.passed_as_self?
-      if node.uses_with_scope? && (yield_scope = context.vars["%scope"]?)
-        call_args << yield_scope.pointer
+    end
+
+    # First self.
+    if owner.passed_as_self?
+      if obj && obj.type.passed_as_self?
+        call_args << downcast(@last, target_def.owner, obj.type, true)
       else
-        call_args << llvm_self(owner)
+        if node.uses_with_scope? && (yield_scope = context.vars["%scope"]?)
+          call_args << downcast(yield_scope.pointer, target_def.owner, node.with_scope.not_nil!, true)
+        else
+          call_args << llvm_self(owner)
+        end
       end
     end
 
@@ -230,8 +239,9 @@ class Crystal::CodeGenVisitor
         context.reset_closure
 
         target_def = node.target_def
-        node.ensure_exception_handler = current_ensure_exception_handler
-        target_def.ensure_exception_handler = current_ensure_exception_handler
+
+        set_ensure_exception_handler(node)
+        set_ensure_exception_handler(target_def)
 
         alloca_vars target_def.vars, target_def
         create_local_copy_of_block_args(target_def, self_type, call_args)
@@ -269,6 +279,9 @@ class Crystal::CodeGenVisitor
       @needs_value = true
       accept node_obj
       obj_type_id = @last
+    elsif node.uses_with_scope? && (with_scope = node.with_scope)
+      owner = with_scope
+      obj_type_id = context.vars["%scope"].pointer
     else
       owner = node.scope
       obj_type_id = llvm_self
@@ -276,7 +289,7 @@ class Crystal::CodeGenVisitor
     obj_type_id = type_id(obj_type_id, owner)
 
     # Create self var if available
-    if node_obj && node_obj.type.passed_as_self?
+    if node_obj
       new_vars["%self"] = LLVMVar.new(@last, node_obj.type, true)
     end
 
@@ -290,7 +303,11 @@ class Crystal::CodeGenVisitor
 
     # Reuse this call for each dispatch branch
     call = Call.new(node_obj ? Var.new("%self") : nil, node.name, node.args.map_with_index { |arg, i| Var.new("%arg#{i}") as ASTNode }, node.block).at(node)
-    call.scope = node.scope
+    call.scope = with_scope || node.scope
+    call.with_scope = with_scope
+    call.uses_with_scope = node.uses_with_scope?
+
+    is_super = node.name == "super"
 
     with_cloned_context do
       context.vars = new_vars
@@ -298,7 +315,12 @@ class Crystal::CodeGenVisitor
       Phi.open(self, node, old_needs_value) do |phi|
         # Iterate all defs and check if any match the current types, given their ids (obj_type_id and arg_type_ids)
         target_defs.each do |a_def|
-          result = match_type_id(owner, a_def.owner, obj_type_id)
+          if is_super
+            # A super call always matches the obj type
+            result = int1(1)
+          else
+            result = match_type_id(owner, a_def.owner, obj_type_id)
+          end
           node.args.each_with_index do |node_arg, i|
             a_def_arg = a_def.args[i]
             result = and(result, match_type_id(node_arg.type, a_def_arg.type, arg_type_ids[i]))
@@ -334,17 +356,56 @@ class Crystal::CodeGenVisitor
 
   def codegen_call(node, target_def, self_type, call_args)
     body = target_def.body
-    if body.is_a?(Crystal::Primitive)
+
+    # Try to inline the call
+    if try_inline_call(target_def, body, self_type, call_args)
+      return
+    end
+
+    # We also always inline primitives
+    if body.is_a?(Primitive)
       # Change context type: faster then creating a new context
       old_type = context.type
       context.type = self_type
       codegen_primitive(body, target_def, call_args)
       context.type = old_type
-      return
+      return true
     end
 
     func = target_def_fun(target_def, self_type)
     codegen_call_or_invoke(node, target_def, self_type, func, call_args, target_def.raises, target_def.type)
+  end
+
+  # If a method's body is just a simple literal, "self", or an instance variable,
+  # we always inline it: less code generated, easier job for LLVM to optimize, and
+  # avoid a call in non-release builds. But do this only in non-debug builds, so we can still step.
+  def try_inline_call(target_def, body, self_type, call_args)
+    return false if @debug || target_def.is_a?(External)
+
+    case body
+    when Nop, NilLiteral, BoolLiteral, CharLiteral, StringLiteral, NumberLiteral, SymbolLiteral
+      return true unless @needs_value
+
+      accept body
+      @last = upcast(@last, target_def.type, body.type)
+      return true
+    when Var
+      if body.name == "self"
+        return true unless @needs_value
+
+        @last = self_type.passed_as_self? ? call_args.first : type_id(self_type)
+        @last = upcast(@last, target_def.type, body.type)
+        return true
+      end
+    when InstanceVar
+      return true unless @needs_value
+
+      read_instance_var(body.type, self_type, body.name, call_args.first)
+      @last = upcast(@last, target_def.type, body.type)
+      return true
+    end
+
+    false
   end
 
   def codegen_call_or_invoke(node, target_def, self_type, func, call_args, raises, type, is_closure = false, fun_type = nil)

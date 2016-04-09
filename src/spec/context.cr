@@ -4,10 +4,17 @@ module Spec
   end
 
   # :nodoc:
-  record Result, kind, description, file, line, exception
+  record Result,
+    kind : Symbol,
+    description : String,
+    file : String,
+    line : Int32,
+    exception : Exception?
 
   # :nodoc:
   class RootContext < Context
+    @results : Hash(Symbol, Array(Result))
+
     def initialize
       @results = {
         success: [] of Result,
@@ -31,7 +38,8 @@ module Spec
     end
 
     def report(result)
-      Spec.formatter.report(result)
+      Spec.formatters.each(&.report(result))
+
       @results[result.kind] << result
     end
 
@@ -44,7 +52,7 @@ module Spec
     end
 
     def print_results(elapsed_time)
-      Spec.formatter.finish
+      Spec.formatters.each(&.finish)
 
       pendings = @results[:pending]
       unless pendings.empty?
@@ -133,27 +141,27 @@ module Spec
     def self.describe(description, file, line, &block)
       describe = Spec::NestedContext.new(description, file, line, @@contexts_stack.last)
       @@contexts_stack.push describe
-      Spec.formatter.push describe
+      Spec.formatters.each(&.push(describe))
       block.call
-      Spec.formatter.pop
+      Spec.formatters.each(&.pop)
       @@contexts_stack.pop
     end
 
-    def self.matches?(description, pattern, line)
-      @@contexts_stack.any?(&.matches?(pattern, line)) || description =~ pattern
+    def self.matches?(description, pattern, line, locations)
+      @@contexts_stack.any?(&.matches?(pattern, line, locations)) || description =~ pattern
     end
 
-    def matches?(pattern, line)
+    def matches?(pattern, line, locations)
       false
     end
   end
 
   # :nodoc:
   class NestedContext < Context
-    getter parent
-    getter description
-    getter file
-    getter line
+    getter parent : Context
+    getter description : String
+    getter file : String
+    getter line : Int32
 
     def initialize(@description : String, @file, @line, @parent)
     end
@@ -162,8 +170,17 @@ module Spec
       @parent.report Result.new(result.kind, "#{@description} #{result.description}", result.file, result.line, result.exception)
     end
 
-    def matches?(pattern, line)
-      @description =~ pattern || @line == line
+    def matches?(pattern, line, locations)
+      return true if @description =~ pattern
+      return true if @line == line
+
+      if locations
+        lines = locations[@file]?
+        return true unless lines
+        return lines.includes?(@line)
+      end
+
+      false
     end
   end
 end

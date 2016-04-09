@@ -14,15 +14,17 @@ module Crystal
   end
 
   class ToSVisitor < Visitor
+    @str : IO
+    @indent : Int32
+    @inside_macro : Int32
+    @inside_lib : Bool
+    @inside_struct_or_union : Bool
+
     def initialize(@str = MemoryIO.new)
       @indent = 0
       @inside_macro = 0
       @inside_lib = false
-    end
-
-    def visit(node : Primitive)
-      @str << "# primitive: "
-      @str << node.name
+      @inside_struct_or_union = false
     end
 
     def visit(node : Nop)
@@ -69,7 +71,7 @@ module Crystal
     def visit_interpolation(node)
       node.expressions.each do |exp|
         if exp.is_a?(StringLiteral)
-          @str << yield exp.value.gsub('"', "\\\"")
+          @str << yield exp.value
         else
           @str << "\#{"
           exp.accept(self)
@@ -181,15 +183,11 @@ module Crystal
     end
 
     def visit(node : ClassDef)
-      if node.abstract
+      if node.abstract?
         @str << keyword("abstract")
         @str << " "
       end
-      if node.struct
-        @str << keyword("struct")
-      else
-        @str << keyword("class")
-      end
+      @str << keyword(node.struct? ? "struct" : "class")
       @str << " "
       node.name.accept self
       if type_vars = node.type_vars
@@ -292,7 +290,7 @@ module Crystal
           in_parenthesis(need_parens, node_obj)
           @str << "."
         end
-        if node.name.ends_with?('=')
+        if node.name.ends_with?('=') && node.name[0].alpha?
           @str << decorate_call(node, node.name[0..-2])
           @str << " = "
           node.args.each_with_index do |arg, i|
@@ -415,11 +413,6 @@ module Crystal
       false
     end
 
-    def visit(node : TypeNode)
-      node.type.to_s(@str)
-      false
-    end
-
     def visit_backtick(exp)
       @str << '`'
       case exp
@@ -465,7 +458,7 @@ module Crystal
     end
 
     def is_alpha(string)
-      'a' <= string[0].downcase <= 'z'
+      string[0].alpha?
     end
 
     def visit(node : Assign)
@@ -517,10 +510,6 @@ module Crystal
       @str << decorate_var(node, node.name)
     end
 
-    def visit(node : MetaVar)
-      @str << node.name
-    end
-
     def visit(node : FunLiteral)
       @str << "->"
       if node.def.args.size > 0
@@ -560,7 +549,7 @@ module Crystal
     end
 
     def visit(node : Def)
-      @str << "abstract " if node.abstract
+      @str << "abstract " if node.abstract?
       @str << "macro " if node.macro_def?
       @str << keyword("def")
       @str << " "
@@ -589,7 +578,7 @@ module Crystal
       end
       newline
 
-      unless node.abstract
+      unless node.abstract?
         accept_with_indent(node.body)
         append_indent
         @str << keyword("end")
@@ -710,21 +699,19 @@ module Crystal
       else
         @str << "?"
       end
+      if restriction = node.restriction
+        @str << " : "
+        restriction.accept self
+      end
       if default_value = node.default_value
         @str << " = "
         default_value.accept self
-      end
-      if type = node.type?
-        @str << " : "
-        TypeNode.new(type).accept(self)
-      elsif restriction = node.restriction
-        @str << " : "
-        restriction.accept self
       end
       false
     end
 
     def visit(node : Fun)
+      @str << "("
       if inputs = node.inputs
         inputs.each_with_index do |input, i|
           @str << ", " if i > 0
@@ -736,6 +723,8 @@ module Crystal
       if output = node.output
         output.accept self
       end
+      @str << ")"
+      false
     end
 
     def visit(node : Self)
@@ -950,25 +939,21 @@ module Crystal
     end
 
     def visit(node : VisibilityModifier)
-      @str << node.modifier
+      @str << node.modifier.to_s.downcase
       @str << ' '
       node.exp.accept self
       false
     end
 
-    def visit(node : TypeFilteredNode)
-      false
-    end
-
     def to_s_binary(node, op)
-      left_needs_parens = node.left.is_a?(Assign) || node.left.is_a?(Expressions)
+      left_needs_parens = need_parens(node.left)
       in_parenthesis(left_needs_parens, node.left)
 
       @str << " "
       @str << op
       @str << " "
 
-      right_needs_parens = node.right.is_a?(Assign) || node.right.is_a?(Expressions)
+      right_needs_parens = need_parens(node.right)
       in_parenthesis(right_needs_parens, node.right)
       false
     end
@@ -1118,9 +1103,13 @@ module Crystal
 
     def visit(node : IsA)
       node.obj.accept self
-      @str << ".is_a?("
-      node.const.accept self
-      @str << ")"
+      if node.nil_check?
+        @str << ".nil?"
+      else
+        @str << ".is_a?("
+        node.const.accept self
+        @str << ")"
+      end
       false
     end
 

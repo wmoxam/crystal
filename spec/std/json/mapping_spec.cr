@@ -41,7 +41,7 @@ end
 
 class JSONWithNilableTime
   JSON.mapping({
-    value: {type: Time, converter: Time::Format.new("%F")},
+    value: {type: Time, nilable: true, converter: Time::Format.new("%F")},
   })
 
   def initialize
@@ -50,7 +50,7 @@ end
 
 class JSONWithNilableTimeEmittingNull
   JSON.mapping({
-    value: {type: Time, converter: Time::Format.new("%F"), emit_null: true},
+    value: {type: Time, nilable: true, converter: Time::Format.new("%F"), emit_null: true},
   })
 
   def initialize
@@ -90,6 +90,25 @@ class JsonWithDefaults
     f: {type: Int32, nilable: true, default: 1},
     g: {type: Int32, nilable: true, default: nil},
     h: {type: Array(Int32), default: [1, 2, 3]},
+  })
+end
+
+class JSONWithSmallIntegers
+  JSON.mapping({
+    foo: Int16,
+    bar: Int8,
+  })
+end
+
+class JSONWithTimeEpoch
+  JSON.mapping({
+    value: {type: Time, converter: Time::EpochConverter},
+  })
+end
+
+class JSONWithTimeEpochMillis
+  JSON.mapping({
+    value: {type: Time, converter: Time::EpochMillisConverter},
   })
 end
 
@@ -208,6 +227,16 @@ describe "JSON mapping" do
     json.set.should eq(Set(String){"a", "b"})
   end
 
+  it "allows small types of integer" do
+    json = JSONWithSmallIntegers.from_json(%({"foo": 23, "bar": 7}))
+
+    json.foo.should eq(23)
+    typeof(json.foo).should eq(Int16)
+
+    json.bar.should eq(7)
+    typeof(json.bar).should eq(Int8)
+  end
+
   describe "parses json with defaults" do
     it "mixed" do
       json = JsonWithDefaults.from_json(%({"a":1,"b":"bla"}))
@@ -276,5 +305,21 @@ describe "JSON mapping" do
       json = JsonWithDefaults.from_json(%({}))
       json.h.should eq [1, 2, 3]
     end
+  end
+
+  it "uses Time::EpochConverter" do
+    string = %({"value":1459859781})
+    json = JSONWithTimeEpoch.from_json(string)
+    json.value.should be_a(Time)
+    json.value.should eq(Time.epoch(1459859781))
+    json.to_json.should eq(string)
+  end
+
+  it "uses Time::EpochMillisConverter" do
+    string = %({"value":1459860483856})
+    json = JSONWithTimeEpochMillis.from_json(string)
+    json.value.should be_a(Time)
+    json.value.should eq(Time.epoch_ms(1459860483856))
+    json.to_json.should eq(string)
   end
 end

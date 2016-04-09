@@ -69,6 +69,9 @@ module Crystal
   end
 
   class RechableVisitor < Visitor
+    @context_visitor : Crystal::ContextVisitor
+    @visited_typed_defs : Set(UInt64)
+
     def initialize(@context_visitor)
       @visited_typed_defs = Set(typeof(object_id)).new
     end
@@ -97,8 +100,10 @@ module Crystal
   end
 
   class ContextVisitor < Visitor
-    getter contexts
-    getter def_with_yield
+    getter contexts : Array(HashStringType)
+    getter def_with_yield : Def?
+    @context : HashStringType
+    @target_location : Location
 
     def initialize(@target_location)
       @contexts = Array(HashStringType).new
@@ -133,8 +138,8 @@ module Crystal
     end
 
     def process_type(type, &block)
-      if type.is_a?(ContainedType)
-        type.types.values.each do |inner_type|
+      if type.is_a?(NamedType)
+        type.types?.try &.values.each do |inner_type|
           process_type(inner_type)
         end
       end
@@ -161,7 +166,7 @@ module Crystal
         visit_and_append_context typed_def
       end
 
-      result.program.types.values.each do |type|
+      result.program.types?.try &.values.each do |type|
         process_type type
       end
 

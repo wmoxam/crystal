@@ -7,10 +7,6 @@ require "../src/compiler/crystal/**"
 include Crystal
 
 class Crystal::Program
-  def union_of(type1, type2)
-    union_of([type1, type2] of Type).not_nil!
-  end
-
   def union_of(type1, type2, type3)
     union_of([type1, type2, type3] of Type).not_nil!
   end
@@ -22,13 +18,12 @@ class Crystal::Program
   def fun_of(type1 : Type, type2 : Type)
     fun_of([type1, type2] of Type)
   end
-
-  def nilable(type)
-    union_of self.nil, type
-  end
 end
 
-record InferTypeResult, program, node, type
+record InferTypeResult,
+  program : Program,
+  node : ASTNode,
+  type : Type
 
 def assert_type(str, flags = nil)
   result = infer_type_result(str, flags)
@@ -83,7 +78,7 @@ def assert_expand_second(from : String, to)
   assert_expand node, to
 end
 
-def assert_after_type_inference(before, after)
+def assert_after_cleanup(before, after)
   node = Parser.parse(before)
   result = infer_type node
   result.node.to_s.strip.should eq(after.strip)
@@ -143,6 +138,8 @@ def codegen(code)
 end
 
 class Crystal::SpecRunOutput
+  @output : String
+
   def initialize(@output)
   end
 
@@ -151,6 +148,7 @@ class Crystal::SpecRunOutput
   end
 
   delegate to_i, @output
+  delegate to_u64, @output
   delegate to_f, @output
   delegate to_f32, @output
   delegate to_f64, @output
@@ -190,17 +188,21 @@ def run(code, filename = nil)
 end
 
 def test_c(c_code, crystal_code)
-  File.write("./temp_abi.c", c_code)
+  c_filename = "#{__DIR__}/temp_abi.c"
+  o_filename = "#{__DIR__}/temp_abi.o"
+  begin
+    File.write(c_filename, c_code)
 
-  `#{Crystal::Compiler::CC} ./temp_abi.c -c -o ./temp_abi.o`.should be_truthy
+    `#{Crystal::Compiler::CC} #{c_filename} -c -o #{o_filename}`.should be_truthy
 
-  yield run(%(
+    yield run(%(
     require "prelude"
 
-    @[Link(ldflags: "temp_abi.o")]
+    @[Link(ldflags: "#{o_filename}")]
     #{crystal_code}
     ))
-ensure
-  File.delete("./temp_abi.c")
-  File.delete("./temp_abi.o")
+  ensure
+    File.delete(c_filename)
+    File.delete(o_filename)
+  end
 end

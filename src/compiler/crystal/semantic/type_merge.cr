@@ -42,7 +42,7 @@ module Crystal
       elsif first
         if second
           # first and second not nil and different
-          if first.type_id > second.type_id
+          if first.opaque_id > second.opaque_id
             first, second = second, first
           end
 
@@ -141,6 +141,14 @@ module Crystal
       else
         types.first.program.type_merge(types)
       end
+    end
+
+    def self.merge!(types_or_nodes)
+      merge(types_or_nodes).not_nil!
+    end
+
+    def self.merge!(type1 : Type, type2 : Type)
+      merge!([type1, type2])
     end
 
     def common_ancestor(other)

@@ -28,7 +28,7 @@ class Regex
     # ```
     # "Crystal".match(/[p-s]/) { |md| md.regex } # => /[p-s]/
     # ```
-    getter regex
+    getter regex : Regex
 
     # Returns the number of capture groups, including named capture groups.
     #
@@ -37,14 +37,18 @@ class Regex
     # "Crystal".match(/r(ys)/) { |md| md.size }          # => 1
     # "Crystal".match(/r(ys)(?<ok>ta)/) { |md| md.size } # => 2
     # ```
-    getter size
+    getter size : Int32
 
     # Returns the original string.
     #
     # ```
     # "Crystal".match(/[p-s]/) { |md| md.string } # => "Crystal"
     # ```
-    getter string
+    getter string : String
+
+    @code : LibPCRE::Pcre
+    @pos : Int32
+    @ovector : Int32*
 
     # :nodoc:
     def initialize(@regex, @code, @string, @pos, @ovector, @size)
@@ -61,7 +65,7 @@ class Regex
     # "クリスタル".match(/リ(ス)/) { |md| md.begin(0) }    # => 1
     # ```
     def begin(n = 0)
-      byte_index_to_char_index byte_begin(n)
+      @string.byte_index_to_char_index byte_begin(n)
     end
 
     # Return the position of the next character after the match.
@@ -75,7 +79,7 @@ class Regex
     # "クリスタル".match(/リ(ス)/) { |md| md.end(0) }    # => 3
     # ```
     def end(n = 0)
-      byte_index_to_char_index byte_end(n)
+      @string.byte_index_to_char_index byte_end(n)
     end
 
     # Return the position of the first byte of the `n`th match.
@@ -131,8 +135,8 @@ class Regex
     # if there is no `n`th capture group.
     #
     # ```
-    # "Crystal".match(/r(ys)/) { |md| md[1]? } # => "ys"
-    # "Crystal".match(/r(ys)/) { |md| md[2]? } # => raises IndexError
+    # "Crystal".match(/r(ys)/) { |md| md[1] } # => "ys"
+    # "Crystal".match(/r(ys)/) { |md| md[2] } # => raises IndexError
     # ```
     def [](n)
       check_index_out_of_bounds n
@@ -207,16 +211,6 @@ class Regex
         end
       end
       io << ">"
-    end
-
-    private def byte_index_to_char_index(index)
-      reader = Char::Reader.new(@string)
-      i = 0
-      reader.each do |char|
-        break if reader.pos == index
-        i += 1
-      end
-      i
     end
 
     private def check_index_out_of_bounds(index)

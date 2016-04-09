@@ -16,7 +16,7 @@ class Crystal::Call
     obj_type.used = true
     external.used = true
 
-    untyped_defs = [external]
+    untyped_defs = [external] of Def
     @target_defs = untyped_defs
 
     self.unbind_from old_target_defs if old_target_defs
@@ -39,7 +39,7 @@ class Crystal::Call
 
     return if required_args_count <= call_args_count <= all_args_count
 
-    raise "wrong number of arguments for '#{full_name(obj_type)}' (#{args.size} for #{external.args.size})"
+    wrong_number_of_arguments "'#{full_name(obj_type)}'", args.size, external.args.size
   end
 
   def check_fun_out_args(untyped_def)
@@ -48,6 +48,10 @@ class Crystal::Call
       if call_arg.is_a?(Out)
         arg_type = arg.type
         if arg_type.is_a?(PointerInstanceType)
+          if arg_type.element_type.remove_indirection.void?
+            call_arg.raise "can't use out with Void* (argument #{lib_arg_name(arg, i)} of #{untyped_def.owner}.#{untyped_def.name} is Void*)"
+          end
+
           if call_arg.exp.is_a?(Underscore)
             call_arg.exp.type = arg_type.element_type
           else
@@ -57,7 +61,7 @@ class Crystal::Call
             parent_visitor.bind_meta_var(call_arg.exp)
           end
         else
-          call_arg.raise "argument \##{i + 1} to #{untyped_def.owner}.#{untyped_def.name} cannot be passed as 'out' because it is not a pointer"
+          call_arg.raise "argument #{lib_arg_name(arg, i)} of #{untyped_def.owner}.#{untyped_def.name} cannot be passed as 'out' because it is not a pointer"
         end
       end
     end
@@ -128,7 +132,7 @@ class Crystal::Call
 
     implicit_call = Conversions.try_to_unsafe(self_arg.clone, parent_visitor) do |ex|
       if Conversions.to_unsafe_lookup_failed?(ex)
-        arg_name = typed_def_arg.name.bytesize > 0 ? "'#{typed_def_arg.name}'" : "##{index + 1}"
+        arg_name = lib_arg_name(typed_def_arg, index)
 
         if expected_type.is_a?(FunInstanceType) &&
            actual_type.is_a?(FunInstanceType) &&
@@ -147,7 +151,7 @@ class Crystal::Call
       if implicit_call_type.compatible_with?(expected_type)
         self.args[index] = implicit_call
       else
-        arg_name = typed_def_arg.name.bytesize > 0 ? "'#{typed_def_arg.name}'" : "##{index + 1}"
+        arg_name = lib_arg_name(typed_def_arg, index)
         self_arg.raise "argument #{arg_name} of '#{full_name(obj_type)}' must be #{expected_type}, not #{actual_type} (nor #{implicit_call_type} returned by '#{actual_type}#to_unsafe')"
       end
     else
@@ -180,4 +184,8 @@ class Crystal::Call
     self.args[index] = convert_call
     true
   end
+end
+
+private def lib_arg_name(arg, index)
+  arg.name.empty? ? "##{index + 1}" : "'#{arg.name}'"
 end

@@ -14,8 +14,11 @@ module Crystal
   end
 
   class Normalizer < Transformer
-    getter program
-    property exp_nest
+    getter program : Program
+    property exp_nest : Int32
+
+    @dead_code : Bool
+    @current_def : Def?
 
     def initialize(@program)
       @dead_code = false
@@ -180,7 +183,7 @@ module Crystal
         when NumberLiteral, Var, InstanceVar
           transform_many node.args
           left = obj
-          right = Call.new(middle, node.name, node.args)
+          right = Call.new(middle.clone, node.name, node.args)
         else
           temp_var = new_temp_var
           temp_assign = Assign.new(temp_var.clone, middle)
@@ -279,7 +282,7 @@ module Crystal
     #    end
     def transform(node : Until)
       node = super
-      not_exp = Call.new(node.cond, "!").at(node.cond)
+      not_exp = Not.new(node.cond).at(node.cond)
       While.new(not_exp, node.body).at(node)
     end
 

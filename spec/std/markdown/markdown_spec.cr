@@ -69,10 +69,15 @@ describe Markdown do
   assert_render "```crystal\nHello\nWorld\n```", "<pre><code class='language-crystal'>Hello\nWorld</code></pre>"
   assert_render "Hello\n```\nWorld\n```", "<p>Hello</p>\n\n<pre><code>World</code></pre>"
 
+  assert_render "> Hello World\n", "<blockquote>Hello World</blockquote>"
+
   assert_render "* Hello", "<ul><li>Hello</li></ul>"
   assert_render "* Hello\n* World", "<ul><li>Hello</li><li>World</li></ul>"
+  assert_render "* Hello\n* World\n  * Crystal", "<ul><li>Hello</li><li>World</li><ul><li>Crystal</li></ul></ul>"
+  assert_render "* Level1\n  * Level2\n  * Level2\n* Level1", "<ul><li>Level1</li><ul><li>Level2</li><li>Level2</li></ul><li>Level1</li></ul>"
+  assert_render "* Level1\n  * Level2\n  * Level2", "<ul><li>Level1</li><ul><li>Level2</li><li>Level2</li></ul></ul>"
   assert_render "* Hello\nWorld", "<ul><li>Hello</li></ul>\n\n<p>World</p>"
-  assert_render "Params:\n  * Foo\n  * Bar", "<p>Params:</p>\n\n<ul><li>Foo</li><li>Bar</li></ul>"
+  assert_render "Params:\n* Foo\n* Bar", "<p>Params:</p>\n\n<ul><li>Foo</li><li>Bar</li></ul>"
 
   assert_render "+ Hello", "<ul><li>Hello</li></ul>"
   assert_render "- Hello", "<ul><li>Hello</li></ul>"

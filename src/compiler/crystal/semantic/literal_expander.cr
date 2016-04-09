@@ -1,5 +1,8 @@
 module Crystal
   class LiteralExpander
+    @program : Program
+    @regexes : Array({String, Regex::Options})
+
     def initialize(@program)
       @regexes = [] of {String, Regex::Options}
     end
@@ -68,7 +71,7 @@ module Crystal
       exps = Array(ASTNode).new(node.elements.size + 2)
       exps << Assign.new(temp_var.clone, constructor).at(node)
       node.elements.each do |elem|
-        exps << Call.new(temp_var.clone, "<<", elem).at(node)
+        exps << Call.new(temp_var.clone, "<<", elem.clone).at(node)
       end
       exps << temp_var.clone
 
@@ -118,8 +121,8 @@ module Crystal
       if of = node.of
         type_vars = [of.key, of.value] of ASTNode
       else
-        typeof_key = TypeOf.new(node.entries.map &.key.clone).at(node)
-        typeof_value = TypeOf.new(node.entries.map &.value.clone).at(node)
+        typeof_key = TypeOf.new(node.entries.map { |x| x.key.clone as ASTNode }).at(node)
+        typeof_value = TypeOf.new(node.entries.map { |x| x.value.clone as ASTNode }).at(node)
         type_vars = [typeof_key, typeof_value] of ASTNode
       end
 
@@ -173,6 +176,18 @@ module Crystal
 
         global_name = "$Regex:#{index}"
         temp_name = @program.new_temp_var_name
+
+        global_var = MetaTypeVar.new(global_name)
+        global_var.owner = @program
+        type = @program.nilable(@program.regex)
+        global_var.freeze_type = type
+        global_var.type = type
+
+        # TODO: need to bind with nil_var for codegen, but shouldn't be needed
+        global_var.bind_to(@program.nil_var)
+
+        @program.global_vars[global_name] = global_var
+
         @program.initialized_global_vars.add global_name
         first_assign = Assign.new(Var.new(temp_name), Global.new(global_name))
         regex = regex_new_call(node, StringLiteral.new(string))
@@ -207,6 +222,10 @@ module Crystal
                    If.new(left, node.right, left.clone)
                  elsif left.is_a?(Assign) && left.target.is_a?(Var)
                    If.new(left, node.right, left.target.clone)
+                 elsif left.is_a?(Not) && left.exp.is_a?(Var)
+                   If.new(left, node.right, left.clone)
+                 elsif left.is_a?(Not) && ((left_exp = left.exp).is_a?(IsA) && left_exp.obj.is_a?(Var))
+                   If.new(left, node.right, left.clone)
                  else
                    temp_var = new_temp_var
                    If.new(Assign.new(temp_var.clone, left), node.right, temp_var.clone)
@@ -240,6 +259,10 @@ module Crystal
                    If.new(left, left.clone, node.right)
                  elsif left.is_a?(Assign) && left.target.is_a?(Var)
                    If.new(left, left.target.clone, node.right)
+                 elsif left.is_a?(Not) && left.exp.is_a?(Var)
+                   If.new(left, left.clone, node.right)
+                 elsif left.is_a?(Not) && ((left_exp = left.exp).is_a?(IsA) && left_exp.obj.is_a?(Var))
+                   If.new(left, left.clone, node.right)
                  else
                    temp_var = new_temp_var
                    If.new(Assign.new(temp_var.clone, left), temp_var.clone, node.right)
@@ -345,18 +368,43 @@ module Crystal
     #     if temp.is_a?(Bar)
     #       1
     #     end
+    #
+    # We also take care to expand multiple conds
+    #
+    # From:
+    #
+    #     case {x, y}
+    #     when {1, 2}, {3, 4}
+    #       3
+    #     end
+    #
+    # To:
+    #
+    #     if (1 === x && y === 2) || (3 === x && 4 === y)
+    #       3
+    #     end
     def expand(node : Case)
       node_cond = node.cond
       if node_cond
-        case node_cond
-        when Var, InstanceVar
-          temp_var = node.cond
-        when Assign
-          temp_var = node_cond.target
-          assign = node_cond
+        if node_cond.is_a?(TupleLiteral)
+          conds = node_cond.elements
         else
-          temp_var = new_temp_var
-          assign = Assign.new(temp_var.clone, node_cond)
+          conds = [node_cond]
+        end
+
+        assigns = [] of ASTNode
+        temp_vars = conds.map do |cond|
+          case cond
+          when Var, InstanceVar
+            temp_var = cond
+          when Assign
+            temp_var = cond.target
+            assigns << cond
+          else
+            temp_var = new_temp_var
+            assigns << Assign.new(temp_var.clone, cond)
+          end
+          temp_var
         end
       end
 
@@ -365,7 +413,30 @@ module Crystal
       node.whens.each do |wh|
         final_comp = nil
         wh.conds.each do |cond|
-          comp = case_when_comparison(temp_var, cond).at(cond)
+          next if cond.is_a?(Underscore)
+
+          if node_cond.is_a?(TupleLiteral)
+            if cond.is_a?(TupleLiteral)
+              comp = nil
+              cond.elements.zip(temp_vars.not_nil!) do |lh, rh|
+                next if lh.is_a?(Underscore)
+
+                sub_comp = case_when_comparison(rh, lh).at(cond)
+                if comp
+                  comp = And.new(comp, sub_comp)
+                else
+                  comp = sub_comp
+                end
+              end
+            else
+              comp = case_when_comparison(TupleLiteral.new(temp_vars.not_nil!.clone), cond)
+            end
+          else
+            temp_var = temp_vars.try &.first
+            comp = case_when_comparison(temp_var, cond).at(cond)
+          end
+
+          next unless comp
 
           if final_comp
             final_comp = Or.new(final_comp, comp)
@@ -374,7 +445,9 @@ module Crystal
           end
         end
 
-        wh_if = If.new(final_comp.not_nil!, wh.body)
+        final_comp ||= BoolLiteral.new(true)
+
+        wh_if = If.new(final_comp, wh.body)
         if a_if
           a_if.else = wh_if
         else
@@ -388,8 +461,9 @@ module Crystal
       end
 
       final_if = final_if.not_nil!
-      final_exp = if assign
-                    Expressions.new([assign, final_if] of ASTNode)
+      final_exp = if assigns && !assigns.empty?
+                    assigns << final_if
+                    Expressions.new(assigns)
                   else
                     final_if
                   end

@@ -580,7 +580,7 @@ describe "Type inference: class" do
 
       Bar.new(1)
       ),
-      "wrong number of arguments for 'Bar#initialize' (1 for 2)"
+      "wrong number of arguments for 'Bar#initialize' (given 1, expected 2)"
   end
 
   it "doesn't use initialize from base class with virtual type" do
@@ -598,7 +598,7 @@ describe "Type inference: class" do
       klass = 1 == 1 ? Foo : Bar
       klass.new(1)
       ),
-      "wrong number of arguments for 'Bar#initialize' (1 for 2)"
+      "wrong number of arguments for 'Bar#initialize' (given 1, expected 2)"
   end
 
   it "errors if using underscore in generic class" do
@@ -733,7 +733,7 @@ describe "Type inference: class" do
           1
         end
 
-        $x = self.foo
+        $x = self.foo as Int32
       end
 
       $x
@@ -752,7 +752,7 @@ describe "Type inference: class" do
 
       Bar.new
       ),
-      "wrong number of arguments for 'Bar#initialize' (0 for 1)"
+      "wrong number of arguments for 'Bar#initialize' (given 0, expected 1)"
   end
 
   it "instantiates types inferring generic type when there a type argument has the same name as an existing type" do
@@ -897,5 +897,85 @@ describe "Type inference: class" do
       Foo.new
       ),
       "private method 'new' called for Foo"
+  end
+
+  it "errors if creating instance before typing instance variable" do
+    assert_error %(
+      class Foo
+        Foo.new
+
+        @x : Int32
+
+        def initialize
+          @x = false
+        end
+      end
+      ),
+      "instance variable '@x' of Foo must be Int32"
+  end
+
+  it "errors if assigning superclass to declared instance var" do
+    assert_error %(
+      class Foo
+      end
+
+      class Bar < Foo
+      end
+
+      class Main
+        @bar : Bar
+
+        def initialize
+          @bar = Foo.new
+        end
+      end
+
+      Main.new
+      ),
+      "instance variable '@bar' of Main must be Bar"
+  end
+
+  it "hoists instance variable initializer" do
+    assert_type(%(
+      a = Foo.new.bar + 1
+
+      class Foo
+        @bar = 1
+
+        def bar
+          @bar
+        end
+      end
+
+      a
+      )) { int32 }
+  end
+
+  it "doesn't mix classes on definition (#2352)" do
+    assert_type(%(
+      class Baz
+      end
+
+      class A::Baz::B
+        def self.foo
+          1
+        end
+      end
+
+      A::Baz::B.foo
+      )) { int32 }
+  end
+
+  it "types read-instance-var without a type as nil" do
+    assert_type(%(
+      class Foo
+        def foo
+          @foo
+        end
+      end
+
+      f = Foo.new
+      f.@foo
+      )) { |mod| mod.nil }
   end
 end

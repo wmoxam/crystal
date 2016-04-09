@@ -53,6 +53,34 @@ class YAMLWithDefaults
   })
 end
 
+class YAMLWithAny
+  YAML.mapping({
+    obj: YAML::Any,
+  })
+
+  def initialize(@obj)
+  end
+end
+
+class YAMLWithSmallIntegers
+  YAML.mapping({
+    foo: Int16,
+    bar: Int8,
+  })
+end
+
+class YAMLWithTimeEpoch
+  YAML.mapping({
+    value: {type: Time, converter: Time::EpochConverter},
+  })
+end
+
+class YAMLWithTimeEpochMillis
+  YAML.mapping({
+    value: {type: Time, converter: Time::EpochMillisConverter},
+  })
+end
+
 describe "YAML mapping" do
   it "parses person" do
     person = YAMLPerson.from_yaml("---\nname: John\nage: 30\n")
@@ -120,7 +148,17 @@ describe "YAML mapping" do
     yaml.pull.should eq(2)
   end
 
-  describe "parses json with defaults" do
+  it "allows small types of integer" do
+    yaml = YAMLWithSmallIntegers.from_yaml(%({"foo": 21, "bar": 7}))
+
+    yaml.foo.should eq(21)
+    typeof(yaml.foo).should eq(Int16)
+
+    yaml.bar.should eq(7)
+    typeof(yaml.bar).should eq(Int8)
+  end
+
+  describe "parses YAML with defaults" do
     it "mixed" do
       json = YAMLWithDefaults.from_yaml(%({"a":1,"b":"bla"}))
       json.a.should eq 1
@@ -189,5 +227,30 @@ describe "YAML mapping" do
       json = YAMLWithDefaults.from_yaml(%({}))
       json.h.should eq [1, 2, 3]
     end
+  end
+
+  it "parses YAML with any" do
+    yaml = YAMLWithAny.from_yaml("obj: hello")
+    yaml.obj.as_s.should eq("hello")
+
+    yaml = YAMLWithAny.from_yaml({obj: %w(foo bar)}.to_yaml)
+    yaml.obj[1].as_s.should eq("bar")
+
+    yaml = YAMLWithAny.from_yaml({obj: {foo: :bar}}.to_yaml)
+    yaml.obj["foo"].as_s.should eq("bar")
+  end
+
+  it "uses Time::EpochConverter" do
+    string = %({"value":1459859781})
+    yaml = YAMLWithTimeEpoch.from_yaml(string)
+    yaml.value.should be_a(Time)
+    yaml.value.should eq(Time.epoch(1459859781))
+  end
+
+  it "uses Time::EpochMillisConverter" do
+    string = %({"value":1459860483856})
+    yaml = YAMLWithTimeEpochMillis.from_yaml(string)
+    yaml.value.should be_a(Time)
+    yaml.value.should eq(Time.epoch_ms(1459860483856))
   end
 end

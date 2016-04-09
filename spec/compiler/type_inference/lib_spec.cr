@@ -6,15 +6,35 @@ describe "Type inference: lib" do
   end
 
   it "raises on undefined fun" do
-    assert_error("lib LibC; end; LibC.foo", "undefined fun 'foo' for LibC")
+    assert_error %(
+      lib LibC
+      end
+
+      LibC.foo
+      ),
+      "undefined fun 'foo' for LibC"
   end
 
   it "raises wrong number of arguments" do
-    assert_error("lib LibC; fun foo : Int32; end; LibC.foo 1", "wrong number of arguments for 'LibC#foo' (1 for 0)")
+    assert_error %(
+      lib LibC
+        fun foo : Int32
+      end
+
+      LibC.foo 1
+      ),
+      "wrong number of arguments for 'LibC#foo' (given 1, expected 0)"
   end
 
   it "raises wrong argument type" do
-    assert_error("lib LibC; fun foo(x : Int32) : Int32; end; LibC.foo 'a'", "argument 'x' of 'LibC#foo' must be Int32, not Char")
+    assert_error %(
+      lib LibC
+        fun foo(x : Int32) : Int32
+      end
+
+      LibC.foo 'a'
+      ),
+      "argument 'x' of 'LibC#foo' must be Int32, not Char"
   end
 
   it "reports error when changing var type and something breaks" do
@@ -302,7 +322,7 @@ describe "Type inference: lib" do
       lib LibFoo
       end
       ),
-      "wrong number of link arguments (5 for 1..4)"
+      "wrong number of link arguments (given 5, expected 1..4)"
   end
 
   it "errors if unknown named arg" do
@@ -361,7 +381,7 @@ describe "Type inference: lib" do
       end
 
       class Bar
-        def foo
+        def self.foo
         end
       end
 
@@ -612,5 +632,39 @@ describe "Type inference: lib" do
       LibX.x(out z)
       ),
       "can't use out at varargs position: declare the variable with `z = uninitialized ...` and pass it with `pointerof(z)`"
+  end
+
+  it "errors if using out with void pointer (#2424)" do
+    assert_error %(
+      lib LibFoo
+        fun foo(x : Void*)
+      end
+
+      LibFoo.foo(out x)
+      ),
+      "can't use out with Void* (argument 'x' of LibFoo.foo is Void*)"
+  end
+
+  it "errors if using out with void pointer through type" do
+    assert_error %(
+      lib LibFoo
+        type Foo = Void
+        fun foo(x : Foo*)
+      end
+
+      LibFoo.foo(out x)
+      ),
+      "can't use out with Void* (argument 'x' of LibFoo.foo is Void*)"
+  end
+
+  it "errors if using out with non-pointer" do
+    assert_error %(
+      lib LibFoo
+        fun foo(x : Int32)
+      end
+
+      LibFoo.foo(out x)
+      ),
+      "argument 'x' of LibFoo.foo cannot be passed as 'out' because it is not a pointer"
   end
 end

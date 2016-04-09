@@ -2,17 +2,24 @@ require "./*"
 
 # The YAML module provides serialization and deserialization of YAML to/from native Crystal data structures.
 #
-# ### Parsing with `#load` and `#load_all`
+# ### Parsing with `#parse` and `#parse_all`
 #
-# Deserializes a YAML document into a `Type`.
-# A `Type` is a union of all possible YAML types, so casting to a specific type is necessary
-# before the value is practically usable.
+# `YAML#parse` will return an `Any`, which is a convenient wrapper around all possible YAML types,
+# making it easy to traverse a complex YAML structure but requires some casts from time to time,
+# mostly via some method invocations.
 #
 # ```crystal
 # require "yaml"
 #
-# data = YAML.load("foo: bar")
-# (data as Hash)["foo"] # => "bar"
+# data = YAML.parse <<-END
+#          ---
+#          foo:
+#            bar:
+#              baz:
+#                - qux
+#                - fox
+#          END
+# data["foo"]["bar"]["baz"][1].as_s # => "qux"
 # ```
 #
 # ### Parsing with `YAML#mapping`
@@ -35,10 +42,12 @@ require "./*"
 module YAML
   # Exception thrown on a YAML parse error.
   class ParseException < Exception
-    getter line_number
-    getter column_number
+    getter line_number : Int32
+    getter column_number : Int32
 
-    def initialize(message, @line_number, @column_number)
+    def initialize(message, line_number, column_number)
+      @line_number = line_number.to_i
+      @column_number = column_number.to_i
       super "#{message} at #{@line_number}:#{@column_number}"
     end
   end
@@ -64,7 +73,8 @@ module YAML
   #
   # ```crystal
   # require "yaml"
-  # YAML.load(File.read("./foo.yml"))
+  #
+  # YAML.parse(File.read("./foo.yml"))
   # # => {
   # # => "data" => {
   # # => "string" => "foobar",
@@ -73,7 +83,7 @@ module YAML
   # # => "paragraph" => "foo\nbar\n"
   # # => }
   # ```
-  def self.load(data : String)
+  def self.parse(data : String) : Any
     parser = YAML::Parser.new(data)
     begin
       parser.parse
@@ -93,10 +103,11 @@ module YAML
   #
   # ```crystal
   # require "yaml"
-  # YAML.load_all(File.read("./foo.yml"))
+  #
+  # YAML.parse_all(File.read("./foo.yml"))
   # # => [{"foo" => "bar"}, {"hello" => "world"}]
   # ```
-  def self.load_all(data : String)
+  def self.parse_all(data : String) : Array(Any)
     parser = YAML::Parser.new(data)
     begin
       parser.parse_all

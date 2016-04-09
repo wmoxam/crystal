@@ -2,18 +2,49 @@ require "./base_type_visitor"
 
 module Crystal
   class Program
-    def first_pass(node)
-      node.accept FirstPassVisitor.new(self)
+    def visit_top_level(node)
+      node.accept TopLevelVisitor.new(self)
       node
     end
   end
 
-  class FirstPassVisitor < BaseTypeVisitor
+  # In this pass we traverse the AST nodes to declare and process:
+  # - class
+  # - struct
+  # - module
+  # - include
+  # - extend
+  # - enum (checking their value, since these need to be numbers or simple math operations)
+  # - macro
+  # - def (without going inside them)
+  # - alias (without resolution)
+  # - constants (without checking their value)
+  # - macro calls (only surface macros, because we don't go inside defs)
+  # - lib and everything inside them
+  # - fun with body (without going inside them)
+  #
+  # Macro calls are expanded, but only the first pass is done to them. This
+  # allows macros to define new classes and methods.
+  #
+  # We also process @[Link] attributes.
+  #
+  # After this pass we have completely defined the whole class hierarchy,
+  # including methods. After this point no new classes or methods can be introduced
+  # since in next passes we only go inside methods and top-level code, but we already
+  # analyzed top-level (surface) macros that could have expanded to class/method
+  # definitions.
+  #
+  # Now that we know the whole hierarchy, when someone types Foo, we know whether Foo has
+  # subclasses or not and we can tag it as "virtual" (having subclasses), but that concept
+  # might disappear in the future and we'll make consider everything as "maybe virtual".
+  class TopLevelVisitor < BaseTypeVisitor
+    @inside_block : Int32
+
     def initialize(mod)
       super(mod)
 
-      @process_types = 0
       @inside_block = 0
+      @process_types = 0
     end
 
     def processing_types
@@ -24,19 +55,27 @@ module Crystal
     end
 
     def visit(node : Path)
-      if @process_types > 0
-        super
-      else
-        false
-      end
+      @process_types > 0 ? super : false
     end
 
     def visit(node : Generic)
-      if @process_types > 0
-        super
-      else
-        false
-      end
+      @process_types > 0 ? super : false
+    end
+
+    def visit(node : Fun)
+      @process_types > 0 ? super : false
+    end
+
+    def visit(node : Union)
+      @process_types > 0 ? super : false
+    end
+
+    def visit(node : Metaclass)
+      @process_types > 0 ? super : false
+    end
+
+    def visit(node : Self)
+      @process_types > 0 ? super : false
     end
 
     def visit(node : Assign)
@@ -46,6 +85,8 @@ module Crystal
 
     def type_assign(target : Var, value, node)
       @vars[target.name] = MetaVar.new(target.name)
+      value.accept self
+      false
     end
 
     def type_assign(target : Path, value, node)
@@ -73,7 +114,8 @@ module Crystal
     end
 
     def type_assign(target, value, node)
-      # Nothing
+      value.accept self
+      false
     end
 
     def visit(node : ClassDef)
@@ -84,7 +126,7 @@ module Crystal
       if node_superclass
         superclass = lookup_path_type(node_superclass)
       else
-        superclass = node.struct ? mod.struct : mod.reference
+        superclass = node.struct? ? mod.struct : mod.reference
       end
 
       if node_superclass.is_a?(Generic)
@@ -93,7 +135,7 @@ module Crystal
         end
 
         if node_superclass.type_vars.size != superclass.type_vars.size
-          node_superclass.raise "wrong number of type vars for #{superclass} (#{node_superclass.type_vars.size} for #{superclass.type_vars.size})"
+          node_superclass.wrong_number_of "type vars", superclass, node_superclass.type_vars.size, superclass.type_vars.size
         end
       end
 
@@ -102,8 +144,8 @@ module Crystal
       type = scope.types[name]?
 
       if !type && superclass
-        if (!!node.struct) != (!!superclass.struct?)
-          node.raise "can't make #{node.struct ? "struct" : "class"} '#{node.name}' inherit #{superclass.type_desc} '#{superclass.to_s}'"
+        if node.struct? != superclass.struct?
+          node.raise "can't make #{node.struct? ? "struct" : "class"} '#{node.name}' inherit #{superclass.type_desc} '#{superclass.to_s}'"
         end
       end
 
@@ -113,11 +155,11 @@ module Crystal
         type = type.remove_alias
 
         unless type.is_a?(ClassType)
-          node.raise "#{name} is not a #{node.struct ? "struct" : "class"}, it's a #{type.type_desc}"
+          node.raise "#{name} is not a #{node.struct? ? "struct" : "class"}, it's a #{type.type_desc}"
         end
 
-        if (!!node.struct) != (!!type.struct?)
-          node.raise "#{name} is not a #{node.struct ? "struct" : "class"}, it's a #{type.type_desc}"
+        if node.struct? != type.struct?
+          node.raise "#{name} is not a #{node.struct? ? "struct" : "class"}, it's a #{type.type_desc}"
         end
 
         if node.superclass && type.superclass != superclass
@@ -147,7 +189,7 @@ module Crystal
             mapping = Hash.zip(superclass.type_vars, node_superclass.type_vars)
             superclass = InheritedGenericClass.new(@mod, superclass, mapping)
           else
-            node_superclass.not_nil!.raise "wrong number of type vars for #{superclass} (0 for #{superclass.type_vars.size})"
+            node_superclass.not_nil!.wrong_number_of "type vars", superclass, 0, superclass.type_vars.size
           end
         else
           node_superclass.not_nil!.raise "#{superclass} is not a class, it's a #{superclass.type_desc}"
@@ -159,11 +201,12 @@ module Crystal
         else
           type = NonGenericClassType.new @mod, scope, name, superclass, false
         end
-        type.abstract = node.abstract
-        type.struct = node.struct
+        type.abstract = node.abstract?
+        type.struct = node.struct?
 
         if superclass.is_a?(InheritedGenericClass)
           superclass.extending_class = type
+          (superclass.extended_class as GenericClassType).add_inherited(type)
         end
 
         scope.types[name] = type
@@ -230,6 +273,8 @@ module Crystal
 
       check_outside_block_or_exp node, "declare alias"
 
+      check_no_typeof node.value
+
       existing_type = current_type.types[node.name]?
       if existing_type
         if existing_type.is_a?(AliasType)
@@ -246,6 +291,31 @@ module Crystal
       node.type = @mod.nil
 
       false
+    end
+
+    private def check_no_typeof(node)
+      visitor = HasTypeofVisitor.new
+      node.accept visitor
+      if t = visitor.typeof
+        t.raise "can't use typeof inside alias declaration"
+      end
+    end
+
+    class HasTypeofVisitor < Visitor
+      getter typeof : TypeOf?
+
+      def initialize
+        @typeof = nil
+      end
+
+      def visit(node : TypeOf)
+        @typeof ||= node
+        false
+      end
+
+      def visit(node : ASTNode)
+        true
+      end
     end
 
     def visit(node : Macro)
@@ -287,8 +357,8 @@ module Crystal
 
       node.raises = true if node.has_attribute?("Raises")
 
-      if node.abstract
-        if (target_type.class? || target_type.struct?) && !target_type.abstract
+      if node.abstract?
+        if (target_type.class? || target_type.struct?) && !target_type.abstract?
           node.raise "can't define abstract def on non-abstract #{target_type.type_desc}"
         end
         if target_type.metaclass?
@@ -406,6 +476,7 @@ module Crystal
       check_outside_block_or_exp node, "declare enum"
 
       check_valid_attributes node, ValidEnumDefAttributes, "enum"
+      attributes_doc = attributes_doc()
 
       scope, name = process_type_name(node.name)
 
@@ -436,8 +507,7 @@ module Crystal
       node.resolved_type = enum_type
       attach_doc enum_type, node
 
-      enum_type.doc ||= attributes_doc()
-      enum_type.add_attributes(@attributes)
+      enum_type.doc ||= attributes_doc
       @attributes = nil
 
       pushing_type(enum_type) do
@@ -492,7 +562,8 @@ module Crystal
           end
         end
 
-        node.enum_type = scope.types[name] = enum_type
+        scope.types[name] = enum_type
+        node.created_new_type = true
       end
 
       node.type = mod.nil
@@ -534,7 +605,7 @@ module Crystal
         return false
       when Macro
         if current_type != @mod.program
-          node.raise "#{node.modifier} macros can only be declared at the top-level"
+          node.raise "#{node.modifier.to_s.downcase} macros can only be declared at the top-level"
         end
 
         return false
@@ -553,9 +624,15 @@ module Crystal
 
     def visit(node : FunDef)
       return false if @lib_def_pass == 1
-      return false if node.body
 
+      # Only declare the function, but do not type it
+      # (we do that later in MainVisitor)
+      body = node.body
+      node.body = nil
       visit_fun_def(node)
+      node.body = body
+
+      false
     end
 
     def visit(node : Cast)
@@ -582,6 +659,14 @@ module Crystal
       false
     end
 
+    def visit(node : TypeOf)
+      false
+    end
+
+    def visit(node : PointerOf)
+      false
+    end
+
     def visit(node : ArrayLiteral)
       false
     end
@@ -597,11 +682,19 @@ module Crystal
         node.scope = current_type.metaclass
       end
 
-      if expand_macro(node, raise_on_missing_const: false)
+      if expand_macro(node, raise_on_missing_const: false, first_pass: true)
         false
       else
         true
       end
+    end
+
+    def visit(node : Out)
+      exp = node.exp
+      if exp.is_a?(Var)
+        @vars[exp.name] = MetaVar.new(exp.name)
+      end
+      true
     end
 
     def visit(node : Block)
@@ -685,7 +778,7 @@ module Crystal
           end
           lib_framework = arg.value
         else
-          attr.raise "wrong number of link arguments (#{args.size} for 1..4)"
+          attr.wrong_number_of "link arguments", args.size, "1..4"
         end
 
         count += 1
@@ -749,11 +842,13 @@ module Crystal
         end
 
         if type.type_vars.size != node_name.type_vars.size
-          node_name.raise "wrong number of type vars for #{type} (#{node_name.type_vars.size} for #{type.type_vars.size})"
+          node_name.wrong_number_of "type vars", type, node_name.type_vars.size, type.type_vars.size
         end
 
         mapping = Hash.zip(type.type_vars, node_name.type_vars)
         module_to_include = IncludedGenericModule.new(@mod, type, current_type, mapping)
+
+        type.add_inherited(current_type)
       else
         if type.is_a?(GenericModuleType)
           node_name.raise "#{type} is a generic module"
@@ -794,6 +889,9 @@ module Crystal
     end
 
     class StructOrUnionVisitor < Visitor
+      @type_inference : TopLevelVisitor
+      @struct_or_union : CStructOrUnionType
+
       def initialize(@type_inference, @struct_or_union)
       end
 
@@ -815,7 +913,9 @@ module Crystal
         if @struct_or_union.has_var?(field.name)
           field.raise "#{@struct_or_union.type_desc} #{@struct_or_union} already defines a field named '#{field.name}'"
         end
-        @struct_or_union.add_var MetaInstanceVar.new(field.name, field_type)
+        ivar = MetaTypeVar.new(field.name, field_type)
+        ivar.owner = @struct_or_union
+        @struct_or_union.add_var ivar
       end
 
       def visit(node : Include)

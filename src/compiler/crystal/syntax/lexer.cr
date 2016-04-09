@@ -3,14 +3,18 @@ require "../exception"
 
 module Crystal
   class Lexer
-    property? doc_enabled
-    property? comments_enabled
-    property? count_whitespace
-    property? wants_raw
-    property? slash_is_regex
-    getter reader
-    getter token
-    getter line_number
+    property? doc_enabled : Bool
+    property? comments_enabled : Bool
+    property? count_whitespace : Bool
+    property? wants_raw : Bool
+    property? slash_is_regex : Bool
+    getter reader : Char::Reader
+    getter token : Token
+    getter line_number : Int32
+    @column_number : Int32
+    @filename : String | VirtualFile | Nil
+    @wants_regex : Bool
+    @token_end_location : Location?
 
     def initialize(string)
       @reader = Char::Reader.new(string)
@@ -153,8 +157,6 @@ module Crystal
               when char == '\n'
                 @line_number += 1
                 @column_number = 0
-                @token.line_number = @line_number
-                @token.column_number = @column_number
                 break
               when ident_part?(char)
                 here << char
@@ -414,27 +416,25 @@ module Crystal
           line = @line_number
           column = @column_number
           start = current_pos + 1
-          count = 0
-
+          io = MemoryIO.new
           while true
             char = next_char
             case char
             when '\\'
-              if peek_next_char == '"'
-                next_char
-                count += 1
+              if peek_next_char == '"' || peek_next_char == '\\'
+                io << next_char
               end
             when '"'
               break
             when '\0'
               raise "unterminated quoted symbol", line, column
             else
-              count += 1
+              io << char
             end
           end
 
           @token.type = :SYMBOL
-          @token.value = string_range(start)
+          @token.value = io.to_s
           next_char
           set_token_raw_from_start(start - 2)
         else
@@ -776,7 +776,13 @@ module Crystal
           end
         when 'i'
           case next_char
-          when 'l' then return check_ident_or_keyword(:nil, start)
+          when 'l'
+            if peek_next_char == '?'
+              next_char
+              return check_ident_or_keyword(:nil?, start)
+            else
+              return check_ident_or_keyword(:nil, start)
+            end
           end
         end
         scan_ident(start)
@@ -971,14 +977,14 @@ module Crystal
 
         scan_ident(start)
       else
-        if 'A' <= current_char <= 'Z'
+        if current_char.uppercase?
           start = current_pos
           while ident_part?(next_char)
             # Nothing to do
           end
           @token.type = :CONST
           @token.value = string_range(start)
-        elsif ('a' <= current_char <= 'z') || current_char == '_' || current_char.ord > 0x9F
+        elsif current_char.lowercase? || current_char == '_' || current_char.ord > 0x9F
           next_char
           scan_ident(start)
         else
@@ -1466,7 +1472,7 @@ module Crystal
 
     def finish_scan_prefixed_number(num, negative, start)
       if negative
-        string_value = (-1 * num.to_i64).to_s
+        string_value = (num.to_i64 * -1).to_s
       else
         string_value = num.to_s
       end
@@ -1967,6 +1973,11 @@ module Crystal
           end
         when '#'
           if delimiter_state
+            # If it's "#{..." we don't want "#{{{" to parse it as "# {{ {", but as "#{ {{"
+            # (macro expression inside a string interpolation)
+            if peek_next_char == '{'
+              char = next_char
+            end
             whitespace = false
           else
             break

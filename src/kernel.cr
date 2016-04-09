@@ -1,6 +1,6 @@
 STDIN  = IO::FileDescriptor.new(0, blocking: LibC.isatty(0) == 0)
 STDOUT = (IO::FileDescriptor.new(1, blocking: LibC.isatty(1) == 0)).tap { |f| f.flush_on_newline = true }
-STDERR = IO::FileDescriptor.new(2, blocking: LibC.isatty(2) == 0)
+STDERR = (IO::FileDescriptor.new(2, blocking: LibC.isatty(2) == 0)).tap { |f| f.flush_on_newline = true }
 
 PROGRAM_NAME = String.new(ARGV_UNSAFE.value)
 ARGV         = (ARGV_UNSAFE + 1).to_slice(ARGC_UNSAFE - 1).map { |c_str| String.new(c_str) }
@@ -60,7 +60,7 @@ end
 # ditto
 def sprintf(format_string, args : Array | Tuple) : String
   String.build(format_string.bytesize) do |str|
-    String::Formatter.new(format_string, args, str).format
+    String::Formatter(typeof(args)).new(format_string, args, str).format
   end
 end
 
@@ -69,17 +69,27 @@ def puts(*objects)
   STDOUT.puts *objects
 end
 
-# Prints *obj* to STDOUT by invoking `inspect(io)` on it, and followed
-# by a newline.
-def p(obj)
-  obj.inspect(STDOUT)
+# Prints *object* to STDOUT by invoking `inspect(io)` on it, followed
+# by a newline. Returns *object*.
+def p(object)
+  object.inspect(STDOUT)
   puts
-  obj
+  object
+end
+
+# Prints each object in *objects* to STDOUT by invoking `inspect(io)` on it, followed
+# by a newline. Returns *objects*.
+def p(*objects)
+  objects.each do |obj|
+    obj.inspect(STDOUT)
+    puts
+  end
+  objects
 end
 
 # :nodoc:
 module AtExitHandlers
-  @@handlers = nil
+  @@running = false
 
   def self.add(handler)
     handlers = @@handlers ||= [] of Int32 ->
@@ -147,7 +157,7 @@ class Process
     ->{ Event::SignalHandler.after_fork; nil },
     ->{ Event::SignalChildHandler.instance.after_fork; nil },
     ->{ Random::DEFAULT.new_seed; nil },
-  ]
+  ] of -> Nil
 end
 
 Signal::PIPE.ignore

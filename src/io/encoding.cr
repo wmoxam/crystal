@@ -1,8 +1,8 @@
 module IO
   # Has the name and the invalid option
   struct EncodingOptions
-    getter name
-    getter invalid
+    getter name : String
+    getter invalid : Symbol?
 
     def initialize(@name : String, @invalid : Symbol?)
       EncodingOptions.check_invalid(invalid)
@@ -17,6 +17,10 @@ module IO
 
   # :nodoc:
   class Encoder
+    @encoding_options : EncodingOptions
+    @iconv : Iconv
+    @closed : Bool
+
     def initialize(@encoding_options : EncodingOptions)
       @iconv = Iconv.new("UTF-8", encoding_options.name, encoding_options.invalid)
       @closed = false
@@ -53,7 +57,16 @@ module IO
     BUFFER_SIZE     = 4 * 1024
     OUT_BUFFER_SIZE = 4 * 1024
 
-    property out_slice
+    @encoding_options : EncodingOptions
+    @iconv : Iconv
+    @buffer : Slice(UInt8)
+    @in_buffer : Pointer(UInt8)
+    @in_buffer_left : LibC::SizeT
+    @out_buffer : Slice(UInt8)
+    @last_errno : Int32
+    @closed : Bool
+
+    property out_slice : Slice(UInt8)
 
     def initialize(@encoding_options : EncodingOptions)
       @iconv = Iconv.new(encoding_options.name, "UTF-8", encoding_options.invalid)
@@ -113,6 +126,32 @@ module IO
       end
     end
 
+    def read_byte(io)
+      read(io)
+      if out_slice.empty?
+        nil
+      else
+        byte = out_slice.to_unsafe.value
+        advance 1
+        byte
+      end
+    end
+
+    def read_utf8(io, slice)
+      count = 0
+      until slice.empty?
+        read(io)
+        break if out_slice.empty?
+
+        available = Math.min(out_slice.size, slice.size)
+        out_slice[0, available].copy_to(slice.to_unsafe, available)
+        advance(available)
+        count += available
+        slice += available
+      end
+      count
+    end
+
     def gets(io, delimiter : UInt8, limit : Int)
       read(io)
       return nil if @out_slice.empty?
@@ -138,7 +177,7 @@ module IO
         return string
       end
 
-      # We need to read from the out_slice into a Srting until we find that byte,
+      # We need to read from the out_slice into a String until we find that byte,
       # or until we consumed limit bytes
       String.build do |str|
         loop do

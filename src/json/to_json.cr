@@ -18,6 +18,10 @@ end
 
 # Handly struct to write JSON objects
 struct JSON::ObjectBuilder(T)
+  @io : T
+  @indent : Int32
+  @count : Int32
+
   def initialize(@io : T, @indent = 0)
     @count = 0
   end
@@ -45,6 +49,10 @@ end
 
 # Handly struct to write JSON arrays
 struct JSON::ArrayBuilder(T)
+  @io : T
+  @indent : Int32
+  @count : Int32
+
   def initialize(@io : T, @indent = 0)
     @count = 0
   end
@@ -115,6 +123,9 @@ end
 
 class JSON::PrettyWriter
   include IO
+
+  @io : IO
+  @indent : Int32
 
   def initialize(@io)
     @indent = 0
@@ -266,5 +277,51 @@ end
 struct Time::Format
   def to_json(value : Time, io : IO)
     format(value).to_json(io)
+  end
+end
+
+# Converter to be used with `JSON.mapping` and `YAML.mapping`
+# to serialize a `Time` instance as the number of seconds
+# since the unix epoch. See `Time.epoch`.
+#
+# ```
+# require "json"
+#
+# class Person
+#   JSON.mapping({
+#     birth_date: {type: Time, converter: Time::EpochConverter},
+#   })
+# end
+#
+# person = Person.from_json(%({"birth_date": 1459859781}))
+# person.birth_date # => 2016-04-05 12:36:21 UTC
+# person.to_json    # => %({"birth_date":1459859781})
+# ```
+module Time::EpochConverter
+  def self.to_json(value : Time, io : IO)
+    io << value.epoch
+  end
+end
+
+# Converter to be used with `JSON.mapping` and `YAML.mapping`
+# to serialize a `Time` instance as the number of milliseconds
+# since the unix epoch. See `Time.epoch_ms`.
+#
+# ```
+# require "json"
+#
+# class Person
+#   JSON.mapping({
+#     birth_date: {type: Time, converter: Time::EpochMillisConverter},
+#   })
+# end
+#
+# person = Person.from_json(%({"birth_date": 1459860483856}))
+# person.birth_date # => 2016-04-05 12:48:03 UTC
+# person.to_json    # => %({"birth_date":1459860483856})
+# ```
+module Time::EpochMillisConverter
+  def self.to_json(value : Time, io : IO)
+    io << value.epoch_ms
   end
 end

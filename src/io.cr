@@ -247,6 +247,17 @@ module IO
   def close
   end
 
+  # Returns `true` if this IO is closed.
+  #
+  # IO defines returns `false`, but including types may override.
+  def closed?
+    false
+  end
+
+  protected def check_open
+    raise IO::Error.new "closed stream" if closed?
+  end
+
   # Flushes buffered data, if any.
   #
   # IO defines this is a no-op method, but including types may override.
@@ -403,7 +414,7 @@ module IO
 
   # ditto
   def printf(format_string, args : Array | Tuple) : Nil
-    String::Formatter.new(format_string, args, self).format
+    String::Formatter(typeof(args)).new(format_string, args, self).format
     nil
   end
 
@@ -461,18 +472,52 @@ module IO
     (byte & 0x3f).to_u32
   end
 
-  private def read_utf8_byte
+  # Reads a single decoded UTF-8 byte from this IO. Returns `nil` if there is no more
+  # data to read.
+  #
+  # If no encoding is set, this is the same as `#read_byte`.
+  #
+  # ```
+  # bytes = "你".encode("GB2312") # => [196, 227]
+  #
+  # io = MemoryIO.new(bytes)
+  # io.set_encoding("GB2312")
+  # io.read_utf8_byte # => 228
+  # io.read_utf8_byte # => 189
+  # io.read_utf8_byte # => 160
+  # io.read_utf8_byte # => nil
+  #
+  # "你".bytes # => [228, 189, 160]
+  # ```
+  def read_utf8_byte
     if decoder = decoder()
-      decoder.read(self)
-      if decoder.out_slice.empty?
-        nil
-      else
-        byte = decoder.out_slice.to_unsafe.value
-        decoder.advance 1
-        byte
-      end
+      decoder.read_byte(self)
     else
       read_byte
+    end
+  end
+
+  # Reads UTF-8 decoded bytes into the given *slice*. Returns the number of UTF-8 bytes read.
+  #
+  # If no encoding is set, this is the same as `#read(slice)`.
+  #
+  # ```
+  # bytes = "你".encode("GB2312") # => [196, 227]
+  #
+  # io = MemoryIO.new(bytes)
+  # io.set_encoding("GB2312")
+  #
+  # buffer = uninitialized UInt8[1024]
+  # bytes_read = io.read_utf8(buffer.to_slice) # => 3
+  # buffer.to_slice[0, bytes_read]             # => [228, 189, 160]
+  #
+  # "你".bytes # => [228, 189, 160]
+  # ```
+  def read_utf8(slice : Slice(UInt8))
+    if decoder = decoder()
+      decoder.read_utf8(self, slice)
+    else
+      read(slice)
     end
   end
 
@@ -527,8 +572,8 @@ module IO
   #
   # ```
   # io = MemoryIO.new "hello world"
-  # io.read # => "hello world"
-  # io.read # => ""
+  # io.gets_to_end # => "hello world"
+  # io.gets_to_end # => ""
   # ```
   def gets_to_end : String
     String.build do |str|
@@ -718,7 +763,7 @@ module IO
   # io.rewind
   # io.gets(4) # => "\u{4}\u{3}\u{2}\u{1}"
   # ```
-  def write_bytes(object, format = IO::ByteFormat::SystemEndian : IO::ByteFormat)
+  def write_bytes(object, format : IO::ByteFormat = IO::ByteFormat::SystemEndian)
     object.to_io(self, format)
   end
 
@@ -734,7 +779,7 @@ module IO
   # io.rewind
   # io.read_bytes(Int32, IO::ByteFormat::LittleEndian) # => 0x01020304
   # ```
-  def read_bytes(type, format = IO::ByteFormat::SystemEndian : IO::ByteFormat)
+  def read_bytes(type, format : IO::ByteFormat = IO::ByteFormat::SystemEndian)
     type.from_io(self, format)
   end
 
@@ -857,6 +902,16 @@ module IO
     ByteIterator.new(self)
   end
 
+  # Rewinds this IO. By default this method raises, but including types
+  # mayb implement it.
+  def rewind
+    raise IO::Error.new("can't rewind")
+  end
+
+  @encoding : EncodingOptions?
+  @encoder : Encoder?
+  @decoder : Decoder?
+
   # Sets the encoding of this IO.
   #
   # The *invalid* argument can be:
@@ -865,7 +920,7 @@ module IO
   #
   # String operations (`gets`, `gets_to_end`, `read_char`, `<<`, `print`, `puts`
   # `printf`) will use this encoding.
-  def set_encoding(encoding : String, invalid = nil : Symbol?)
+  def set_encoding(encoding : String, invalid : Symbol? = nil)
     if encoding == "UTF-8"
       @encoding = nil
     else
@@ -907,6 +962,9 @@ module IO
   struct LineIterator(I, A)
     include Iterator(String)
 
+    @io : I
+    @args : A
+
     def initialize(@io : I, @args : A)
     end
 
@@ -924,6 +982,8 @@ module IO
   struct CharIterator(I)
     include Iterator(Char)
 
+    @io : I
+
     def initialize(@io : I)
     end
 
@@ -940,6 +1000,8 @@ module IO
   # :nodoc:
   struct ByteIterator(I)
     include Iterator(UInt8)
+
+    @io : I
 
     def initialize(@io : I)
     end

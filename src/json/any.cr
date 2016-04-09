@@ -45,7 +45,7 @@ struct JSON::Any
   end
 
   # Returns the raw underlying value, a `JSON::Type`.
-  getter raw
+  getter raw : JSON::Type
 
   # Creates a `JSON::Any` that wraps the given `JSON::Type`.
   def initialize(@raw : JSON::Type)
@@ -206,5 +206,19 @@ struct JSON::Any
   # :nodoc:
   def to_json(io)
     raw.to_json(io)
+  end
+end
+
+class Object
+  def ===(other : JSON::Any)
+    self === other.raw
+  end
+end
+
+class Regex
+  def ===(other : JSON::Any)
+    value = self === other.raw
+    $~ = $~
+    value
   end
 end
