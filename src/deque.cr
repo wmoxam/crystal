@@ -19,12 +19,7 @@ class Deque(T)
   # [234---01] @start = 6, size = 5, @capacity = 8
   # (this Deque has 5 items, each equal to their index)
 
-  @start : Int32
   @start = 0
-
-  @size : Int32
-  @capacity : Int32
-  @buffer : T*
 
   # Creates a new empty Deque
   def initialize
@@ -203,7 +198,7 @@ class Deque(T)
   #
   # Use `#dup` if you want a shallow copy.
   def clone
-    Deque(T).new(size) { |i| self[i].clone as T }
+    Deque(T).new(size) { |i| self[i].clone.as(T) }
   end
 
   # Appends the elements of *other* to `self`, and returns `self`.
@@ -293,7 +288,7 @@ class Deque(T)
   # Returns a new Deque that has exactly this deque's elements.
   # That is, it returns a shallow copy of this deque.
   def dup
-    Deque(T).new(size) { |i| self[i] as T }
+    Deque(T).new(size) { |i| self[i].as(T) }
   end
 
   # Yields each item in this deque, from first to last.

@@ -1,6 +1,4 @@
 class LLVM::JITCompiler
-  @unwrap : LibLLVM::ExecutionEngineRef
-
   def initialize(mod)
     # JIT compilers own an LLVM::Module, and when they are disposed the module is disposed,
     # so we must prevent the module from being dispose when the GC will want to free it.
@@ -18,7 +16,7 @@ class LLVM::JITCompiler
   end
 
   def run_function(func, args : Array(LLVM::GenericValue))
-    ret = LibLLVM.run_function(self, func, args.size, (args.to_unsafe as LibLLVM::GenericValueRef*))
+    ret = LibLLVM.run_function(self, func, args.size, (args.to_unsafe.as(LibLLVM::GenericValueRef*)))
     GenericValue.new(ret)
   end
 

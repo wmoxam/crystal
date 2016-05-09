@@ -9,18 +9,17 @@ class String::Builder
   getter bytesize : Int32
   @capacity : Int32
   @buffer : Pointer(UInt8)
-  @finished : Bool
 
   def initialize(capacity : Int = 64)
     String.check_capacity_in_bounds(capacity)
 
-    @buffer = GC.malloc_atomic(capacity.to_u32) as UInt8*
+    @buffer = GC.malloc_atomic(capacity.to_u32).as(UInt8*)
     @bytesize = 0
     @capacity = capacity.to_i
     @finished = false
   end
 
-  def self.build(capacity : Int = 64)
+  def self.build(capacity : Int = 64) : String
     builder = new(capacity)
     yield builder
     builder.to_s
@@ -69,9 +68,9 @@ class String::Builder
       resize_to_capacity(real_bytesize)
     end
 
-    header = @buffer as {Int32, Int32, Int32}*
+    header = @buffer.as({Int32, Int32, Int32}*)
     header.value = {String::TYPE_ID, @bytesize - 1, 0}
-    @buffer as String
+    @buffer.as(String)
   end
 
   private def real_bytesize

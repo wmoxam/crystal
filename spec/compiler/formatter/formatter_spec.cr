@@ -151,7 +151,6 @@ describe Crystal::Formatter do
   assert_format "def   foo (  x  :  Int32 )  \n  end", "def foo(x : Int32)\nend"
   assert_format "def   foo (  x  :  self )  \n  end", "def foo(x : self)\nend"
   assert_format "def   foo (  x  :  Foo.class )  \n  end", "def foo(x : Foo.class)\nend"
-  assert_format "def   foo (  x  :  Foo+ )  \n  end", "def foo(x : Foo+)\nend"
   assert_format "def   foo (  x  :   Int32  =  1 )  \n  end", "def foo(x : Int32 = 1)\nend"
   assert_format "abstract  def   foo  \n  1", "abstract def foo\n\n1"
   assert_format "def foo( & block )\nend", "def foo(&block)\nend"
@@ -391,6 +390,7 @@ describe Crystal::Formatter do
   assert_format "class Foo\n@x  :  Int32\nend", "class Foo\n  @x : Int32\nend"
   assert_format "class Foo\nx = 1\nend", "class Foo\n  x = 1\nend"
   assert_format "x  =   uninitialized   Int32", "x = uninitialized Int32"
+  assert_format "x  :   Int32  =   1", "x : Int32 = 1"
 
   assert_format "def foo\n@x  :  Int32\nend", "def foo\n  @x : Int32\nend"
   assert_format "def foo\n@x   =  uninitialized   Int32\nend", "def foo\n  @x = uninitialized Int32\nend"
@@ -429,8 +429,14 @@ describe Crystal::Formatter do
   assert_format "@[Foo]\ndef foo\nend"
   assert_format "@[Foo(\n  1,\n)]"
 
-  assert_format "1   as   Int32", "1 as Int32"
-  assert_format "foo.bar  as   Int32", "foo.bar as Int32"
+  assert_format "1   as   Int32", "1.as(Int32)"
+  assert_format "foo.bar  as   Int32", "foo.bar.as(Int32)"
+
+  assert_format "1.as   Int32", "1.as Int32"
+  assert_format "foo.bar. as   Int32", "foo.bar.as Int32"
+
+  assert_format "1.as?   Int32", "1.as? Int32"
+  assert_format "foo.bar. as?   Int32", "foo.bar.as? Int32"
 
   assert_format "1 .. 2", "1..2"
   assert_format "1 ... 2", "1...2"
@@ -481,7 +487,7 @@ describe Crystal::Formatter do
   assert_format "macro foo\n  %foo\nend"
   assert_format "macro foo\n  %foo{x.id+2} \nend", "macro foo\n  %foo{x.id + 2}\nend"
   assert_format "macro foo\n  %foo{x,y}\nend", "macro foo\n  %foo{x, y}\nend"
-  assert_format "macro def foo : Int32\n  %foo\nend"
+  assert_format "macro def foo : Int32\n  1\nend"
   assert_format "class Foo\n  macro foo\n    1\n  end\nend"
   assert_format "   {{ 1 + 2 }}", "{{ 1 + 2 }}"
   assert_format "  {% for x in y %} 2 {% end %}", "{% for x in y %} 2 {% end %}"
@@ -499,6 +505,7 @@ describe Crystal::Formatter do
   assert_format "  {% begin %} 2 {% end %}", "{% begin %} 2 {% end %}"
   assert_format "macro foo\n  \\{\nend"
   assert_format "macro foo\n  {% if 1 %} 2 {% elsif 3 %} 4 {% else %} 5 {% end %}\nend"
+  assert_format "macro [](x)\nend"
 
   assert_format "def foo\na = bar do\n1\nend\nend", "def foo\n  a = bar do\n    1\n  end\nend"
   assert_format "def foo\nend\ndef bar\nend", "def foo\nend\n\ndef bar\nend"
@@ -809,9 +816,13 @@ describe Crystal::Formatter do
 
   assert_format "@foo : Int32 # comment\n\ndef foo\nend"
 
-  assert_format "a &.b as C"
-  assert_format "a &.b.c as C"
-  assert_format "a(&.b.c as C)"
+  assert_format "a &.b as C", "a &.b.as(C)"
+  assert_format "a &.b.c as C", "a &.b.c.as(C)"
+  assert_format "a(&.b.c as C)", "a(&.b.c.as(C))"
+
+  assert_format "a &.b.as(C)"
+  assert_format "a &.b.c.as(C)"
+  assert_format "a(&.b.c.as(C))"
 
   assert_format "foo : self?"
   assert_format "foo : self? | A"
@@ -855,4 +866,21 @@ describe Crystal::Formatter do
 
   assert_format "bla.select(&.all?{ |x| x } )", "bla.select(&.all? { |x| x })"
   assert_format "def foo\n  <<-FOO\n  foo \#{1}\n  FOO\nend"
+
+  assert_format "@x : A(B | C)?"
+
+  assert_format "page= <<-HTML\n  foo\nHTML", "page = <<-HTML\n  foo\nHTML"
+  assert_format "page= <<-HTML\n  \#{1}foo\nHTML", "page = <<-HTML\n  \#{1}foo\nHTML"
+
+  assert_format "foo.as ( Int32* )", "foo.as(Int32*)"
+  assert_format "foo.as   Int32*", "foo.as Int32*"
+  assert_format "foo.as(T).bar"
+  assert_format "foo &.as(T)"
+  assert_format "foo &.bar.as(T)"
+
+  assert_format "foo.as? ( Int32* )", "foo.as?(Int32*)"
+  assert_format "foo.as?   Int32*", "foo.as? Int32*"
+  assert_format "foo.as?(T).bar"
+  assert_format "foo &.as?(T)"
+  assert_format "foo &.bar.as?(T)"
 end

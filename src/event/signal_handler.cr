@@ -1,3 +1,6 @@
+require "c/signal"
+require "c/unistd"
+
 # :nodoc:
 # Singleton that runs Signal events (libevent2) in it's own Fiber.
 class Event::SignalHandler
@@ -23,7 +26,6 @@ class Event::SignalHandler
     @@instance ||= new
   end
 
-  @callbacks : Hash(Signal, (Signal ->))
   @read_pipe : IO::FileDescriptor
   @write_pipe : IO::FileDescriptor
 

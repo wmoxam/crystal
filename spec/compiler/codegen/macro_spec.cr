@@ -128,7 +128,9 @@ describe "Code gen: macro" do
       end
 
       macro def foo : Int32
-        bar_{{ "baz".id }}
+        {% begin %}
+          bar_{{ "baz".id }}
+        {% end %}
       end
 
       foo
@@ -148,7 +150,7 @@ describe "Code gen: macro" do
   it "expands def macro with @type.instance_vars" do
     run(%(
       class Foo
-        def initialize(@x)
+        def initialize(@x : Int32)
         end
 
         macro def to_s : String
@@ -170,12 +172,12 @@ describe "Code gen: macro" do
       end
 
       class Foo
-        def initialize(@x)
+        def initialize(@x : Int32)
         end
       end
 
       class Bar < Foo
-        def initialize(@x, @y)
+        def initialize(@x : Int32, @y : Int32)
         end
       end
 
@@ -192,12 +194,12 @@ describe "Code gen: macro" do
       end
 
       class Foo
-        def initialize(@x)
+        def initialize(@x : Int32)
         end
       end
 
       class Bar < Foo
-        def initialize(@x, @y)
+        def initialize(@x : Int32, @y : Int32)
         end
       end
 
@@ -208,7 +210,7 @@ describe "Code gen: macro" do
   it "expands def macro with @type.name" do
     run(%(
       class Foo
-        def initialize(@x)
+        def initialize(@x : Int32)
         end
 
         macro def to_s : String
@@ -333,6 +335,8 @@ describe "Code gen: macro" do
       end
 
       class Foo
+        @name : Int32?
+
         macro def foo : Int32
           name = 1
           @name = name
@@ -436,7 +440,7 @@ describe "Code gen: macro" do
   it "can refer to types" do
     run(%(
       class Foo
-        def initialize(@x, @y)
+        def initialize(@x : Int32, @y : Int32)
         end
 
         macro def foo : String
@@ -1291,5 +1295,101 @@ describe "Code gen: macro" do
 
       id({{CONST}})
       )).to_i.should eq(1)
+  end
+
+  it "can use macro inside array literal" do
+    run(%(
+      require "prelude"
+
+      macro foo
+        42
+      end
+
+      ary = [foo]
+      ary[0]
+      )).to_i.should eq(42)
+  end
+
+  it "can use macro inside hash literal" do
+    run(%(
+      require "prelude"
+
+      macro foo
+        42
+      end
+
+      hash = {foo => foo}
+      hash[foo]
+      )).to_i.should eq(42)
+  end
+
+  it "executes with named arguments for positional arg (1)" do
+    run(%(
+      macro foo(x)
+        {{x}} + 1
+      end
+
+      foo x: 2
+      )).to_i.should eq(3)
+  end
+
+  it "executes with named arguments for positional arg (2)" do
+    run(%(
+      macro foo(x, y)
+        {{x}} + {{y}} + 1
+      end
+
+      foo x: 2, y: 3
+      )).to_i.should eq(6)
+  end
+
+  it "executes with named arguments for positional arg (3)" do
+    run(%(
+      class String
+        def bytesize
+          @bytesize
+        end
+      end
+
+      macro foo(x, y)
+        {{x}} + {{y}}.bytesize + 1
+      end
+
+      foo y: "foo", x: 2
+      )).to_i.should eq(6)
+  end
+
+  it "stringifies type without virtual marker" do
+    run(%(
+      class Foo
+        macro def foo_m : Int32
+          {{ @type }}.foo
+        end
+
+        def self.foo
+          1
+        end
+      end
+
+      class Bar < Foo
+        def self.foo
+          2
+        end
+      end
+
+      (Bar.new || Foo.new).foo_m
+      )).to_i.should eq(2)
+  end
+
+  it "uses tuple T in method with free vars" do
+    run(%(
+      struct Tuple
+        def foo(x : U)
+          {{T.size}}
+        end
+      end
+
+      {1, 3}.foo(1)
+      )).to_i.should eq(2)
   end
 end

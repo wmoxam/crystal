@@ -1,3 +1,5 @@
+require "c/unistd"
+
 STDIN  = IO::FileDescriptor.new(0, blocking: LibC.isatty(0) == 0)
 STDOUT = (IO::FileDescriptor.new(1, blocking: LibC.isatty(1) == 0)).tap { |f| f.flush_on_newline = true }
 STDERR = (IO::FileDescriptor.new(2, blocking: LibC.isatty(2) == 0)).tap { |f| f.flush_on_newline = true }
@@ -152,16 +154,18 @@ end
 
 class Process
   # hooks defined here due to load order problems
-  @@after_fork_child_callbacks = [
-    ->{ Scheduler.after_fork; nil },
-    ->{ Event::SignalHandler.after_fork; nil },
-    ->{ Event::SignalChildHandler.instance.after_fork; nil },
-    ->{ Random::DEFAULT.new_seed; nil },
-  ] of -> Nil
+  def self.after_fork_child_callbacks
+    @@after_fork_child_callbacks ||= [
+      ->{ Scheduler.after_fork; nil },
+      ->{ Event::SignalHandler.after_fork; nil },
+      ->{ Event::SignalChildHandler.instance.after_fork; nil },
+      ->{ Random::DEFAULT.new_seed; nil },
+    ] of -> Nil
+  end
 end
 
-Signal::PIPE.ignore
-Signal::CHLD.reset
+Signal.setup_default_handlers
+
 at_exit { Event::SignalHandler.close }
 
 # Background loop to cleanup unused fiber stacks

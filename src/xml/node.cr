@@ -1,18 +1,16 @@
 struct XML::Node
   LOOKS_LIKE_XPATH = /^(\.\/|\/|\.\.|\.$)/
 
-  @node : LibXML::Node*
-
   def initialize(node : LibXML::Attr*)
-    initialize(node as LibXML::Node*)
+    initialize(node.as(LibXML::Node*))
   end
 
   def initialize(node : LibXML::Doc*)
-    initialize(node as LibXML::Node*)
+    initialize(node.as(LibXML::Node*))
   end
 
   def initialize(node : LibXML::Doc*)
-    initialize(node as LibXML::Node*)
+    initialize(node.as(LibXML::Node*))
   end
 
   def initialize(@node : LibXML::Node*)
@@ -86,7 +84,7 @@ struct XML::Node
   # Returns the encoding of this node's document
   def encoding
     if document?
-      encoding = (@node as LibXML::Doc*).value.encoding
+      encoding = @node.as(LibXML::Doc*).value.encoding
       encoding ? String.new(encoding) : nil
     else
       document.encoding
@@ -96,7 +94,7 @@ struct XML::Node
   # Returns the version of this node's document
   def version
     if document?
-      version = (@node as LibXML::Doc*).value.version
+      version = @node.as(LibXML::Doc*).value.version
       version ? String.new(version) : nil
     else
       document.version
@@ -245,9 +243,12 @@ struct XML::Node
     scopes = [] of Namespace
 
     ns_list = LibXML.xmlGetNsList(@node.value.doc, @node)
-    while ns_list.value
-      scopes << Namespace.new(document, ns_list.value)
-      ns_list += 1
+
+    if ns_list
+      while ns_list.value
+        scopes << Namespace.new(document, ns_list.value)
+        ns_list += 1
+      end
     end
 
     scopes
@@ -384,15 +385,15 @@ struct XML::Node
   end
 
   def xpath_bool(path, namespaces = nil, variables = nil)
-    xpath(path, namespaces) as Bool
+    xpath(path, namespaces).as(Bool)
   end
 
   def xpath_float(path, namespaces = nil, variables = nil)
-    xpath(path, namespaces) as Float64
+    xpath(path, namespaces).as(Float64)
   end
 
   def xpath_nodes(path, namespaces = nil, variables = nil)
-    xpath(path, namespaces) as NodeSet
+    xpath(path, namespaces).as(NodeSet)
   end
 
   def xpath_node(path, namespaces = nil, variables = nil)
@@ -400,16 +401,16 @@ struct XML::Node
   end
 
   def xpath_string(path, namespaces = nil, variables = nil)
-    xpath(path, namespaces) as String
+    xpath(path, namespaces).as(String)
   end
 
   # :nodoc:
   def errors=(errors)
-    @node.value._private = errors as Void*
+    @node.value._private = errors.as(Void*)
   end
 
   def errors
     ptr = @node.value._private
-    ptr ? (ptr as Array(XML::Error)) : nil
+    ptr ? (ptr.as(Array(XML::Error))) : nil
   end
 end

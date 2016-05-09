@@ -17,9 +17,9 @@ describe "Block inference" do
       foo do
         x = 1
       end
-    ") as Expressions
+    ").as(Expressions)
     result = infer_type input
-    (input.last as Call).block.not_nil!.body.type.should eq(result.program.int32)
+    input.last.as(Call).block.not_nil!.body.type.should eq(result.program.int32)
   end
 
   it "infer type of block argument" do
@@ -31,10 +31,10 @@ describe "Block inference" do
       foo do |x|
         1
       end
-    ") as Expressions
+    ").as(Expressions)
     result = infer_type input
     mod = result.program
-    (input.last as Call).block.not_nil!.args[0].type.should eq(mod.int32)
+    input.last.as(Call).block.not_nil!.args[0].type.should eq(mod.int32)
   end
 
   it "infer type of local variable" do
@@ -109,11 +109,9 @@ describe "Block inference" do
       end
 
       bar { |x| x.foo }
-      ") do
-      (types["Foo"] as GenericClassType).instantiate([float64] of TypeVar)
-    end
+      ") { generic_class "Foo", float64 }
     mod = result.program
-    type = result.node.type as GenericClassInstanceType
+    type = result.node.type.as(GenericClassInstanceType)
     type.type_vars["T"].type.should eq(mod.float64)
     type.instance_vars["@x"].type.should eq(mod.float64)
   end
@@ -133,9 +131,7 @@ describe "Block inference" do
       a = foo(1) do |x|
         10.5
       end
-      ") do
-      (types["Foo"] as GenericClassType).instantiate([float64] of TypeVar)
-    end
+      ") { generic_class "Foo", float64 }
   end
 
   it "reports error if yields a type that's not that one in the block specification" do
@@ -244,9 +240,7 @@ describe "Block inference" do
       end
 
       foo { Foo(Float64).new }
-      ") do
-      (types["Foo"] as GenericClassType).instantiate([float64] of TypeVar)
-    end
+      ") { generic_class "Foo", float64 }
   end
 
   it "infers type of block with generic type" do
@@ -454,6 +448,8 @@ describe "Block inference" do
   it "allows initialize with yield (#224)" do
     assert_type(%(
       class Foo
+        @x : Int32
+
         def initialize
           @x = yield 1
         end
@@ -663,7 +659,7 @@ describe "Block inference" do
       require "prelude"
 
       class Bar
-        def initialize(@bar)
+        def initialize(@bar : NoReturn)
         end
 
         def bar
@@ -757,7 +753,7 @@ describe "Block inference" do
   it "uses block return type as return type, even if can't infer block type" do
     assert_type(%(
       class Foo
-        def initialize(@foo)
+        def initialize(@foo : Int32)
         end
 
         def foo
@@ -845,7 +841,7 @@ describe "Block inference" do
 
       Foo.new { }
       ),
-      "'Foo#new' is not expected to be invoked with a block, but a block was given"
+      "'Foo.new' is not expected to be invoked with a block, but a block was given"
   end
 
   it "recalculates call that uses block arg output as free var" do
@@ -860,7 +856,7 @@ describe "Block inference" do
           @x = 1
         end
 
-        def x=(@x)
+        def x=(@x : Char)
         end
 
         def bar

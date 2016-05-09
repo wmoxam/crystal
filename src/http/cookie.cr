@@ -134,7 +134,7 @@ module HTTP
     # headers in the given `HTTP::Headers`.
     #
     # See `HTTP::Request#cookies` and `HTTP::Client::Response#cookies`.
-    def self.from_headers(headers)
+    def self.from_headers(headers) : self
       new.tap { |cookies| cookies.fill_from_headers(headers) }
     end
 
@@ -156,8 +156,6 @@ module HTTP
       end
       self
     end
-
-    @cookies : Hash(String, Cookie)
 
     # Create a new empty instance
     def initialize

@@ -1,9 +1,6 @@
 class YAML::PullParser
-  @parser : LibYAML::Parser*
-  @event : LibYAML::Event
-
   def initialize(content)
-    @parser = Pointer(Void).malloc(LibYAML::PARSER_SIZE) as LibYAML::Parser*
+    @parser = Pointer(Void).malloc(LibYAML::PARSER_SIZE).as(LibYAML::Parser*)
     @event = LibYAML::Event.new
 
     LibYAML.yaml_parser_initialize(@parser)

@@ -18,10 +18,6 @@ end
 
 # Handly struct to write JSON objects
 struct JSON::ObjectBuilder(T)
-  @io : T
-  @indent : Int32
-  @count : Int32
-
   def initialize(@io : T, @indent = 0)
     @count = 0
   end
@@ -49,10 +45,6 @@ end
 
 # Handly struct to write JSON arrays
 struct JSON::ArrayBuilder(T)
-  @io : T
-  @indent : Int32
-  @count : Int32
-
   def initialize(@io : T, @indent = 0)
     @count = 0
   end
@@ -124,10 +116,7 @@ end
 class JSON::PrettyWriter
   include IO
 
-  @io : IO
-  @indent : Int32
-
-  def initialize(@io)
+  def initialize(@io : IO)
     @indent = 0
   end
 
@@ -267,7 +256,7 @@ end
 struct Tuple
   def to_json(io)
     io.json_array do |array|
-      {% for i in 0...@type.size %}
+      {% for i in 0...T.size %}
         array << self[{{i}}]
       {% end %}
     end
@@ -277,6 +266,12 @@ end
 struct Time::Format
   def to_json(value : Time, io : IO)
     format(value).to_json(io)
+  end
+end
+
+struct Enum
+  def to_json(io)
+    io << value
   end
 end
 
@@ -323,5 +318,31 @@ end
 module Time::EpochMillisConverter
   def self.to_json(value : Time, io : IO)
     io << value.epoch_ms
+  end
+end
+
+# Converter to be used with `JSON.mapping` to read the raw
+# value of a JSON object property as a String.
+#
+# It can be useful to read ints and floats without loosing precision,
+# or to read an object and deserialize it later based on some
+# condition.
+#
+# ```
+# require "json"
+#
+# class Raw
+#   JSON.mapping({
+#     value: {type: String, converter: String::RawConverter},
+#   })
+# end
+#
+# raw = Raw.from_json(%({"value": 123456789876543212345678987654321}))
+# raw.value   # => "123456789876543212345678987654321"
+# raw.to_json # => %({"value":123456789876543212345678987654321})
+# ```
+module String::RawConverter
+  def self.to_json(value : String, io : IO)
+    io << value
   end
 end

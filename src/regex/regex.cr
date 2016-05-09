@@ -211,10 +211,6 @@ class Regex
   # ```
   getter source : String
 
-  @re : LibPCRE::Pcre
-  @extra : LibPCRE::PcreExtra
-  @captures : Int32
-
   # Creates a new Regex out of the given source String.
   #
   # ```
@@ -257,7 +253,7 @@ class Regex
   # string = Regex.escape("\*?{}.") # => "\\*\\?\\{\\}\\."
   # /#{string}/                     # => /\*\?\{\}\./
   # ```
-  def self.escape(str)
+  def self.escape(str) : String
     String.build do |result|
       str.each_byte do |byte|
         case byte.chr
@@ -287,7 +283,7 @@ class Regex
   # re.match("Skiing")   # => #<Regex::MatchData "Skiing">
   # re.match("sledding") # => #<Regex::MatchData "sledding">
   # ```
-  def self.union(patterns : Enumerable(Regex | String))
+  def self.union(patterns : Enumerable(Regex | String)) : self
     new patterns.map { |pattern| union_part pattern }.join("|")
   end
 
@@ -302,7 +298,7 @@ class Regex
   # re.match("Skiing")   # => #<Regex::MatchData "Skiing">
   # re.match("sledding") # => #<Regex::MatchData "sledding">
   # ```
-  def self.union(*patterns : Regex | String)
+  def self.union(*patterns : Regex | String) : self
     union patterns
   end
 
@@ -462,7 +458,7 @@ class Regex
     LibPCRE.full_info(@re, @extra, LibPCRE::INFO_NAMECOUNT, out name_count)
     LibPCRE.full_info(@re, @extra, LibPCRE::INFO_NAMEENTRYSIZE, out name_entry_size)
     table_pointer = Pointer(UInt8).null
-    LibPCRE.full_info(@re, @extra, LibPCRE::INFO_NAMETABLE, pointerof(table_pointer) as Pointer(Int32))
+    LibPCRE.full_info(@re, @extra, LibPCRE::INFO_NAMETABLE, pointerof(table_pointer).as(Pointer(Int32)))
     name_table = table_pointer.to_slice(name_entry_size*name_count)
 
     lookup = Hash(UInt16, String).new

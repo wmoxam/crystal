@@ -4,9 +4,9 @@ class Crystal::CodeGenVisitor
   # Can only happen in a Const or as an argument cast.
   def visit(node : Primitive)
     @last = case node.name
-            when :argc
+            when "argc"
               @argc
-            when :argv
+            when "argv"
               @argv
             else
               raise "Bug: unhandled primitive in codegen visit: #{node.name}"
@@ -15,59 +15,57 @@ class Crystal::CodeGenVisitor
 
   def codegen_primitive(node, target_def, call_args)
     @last = case node.name
-            when :binary
+            when "binary"
               codegen_primitive_binary node, target_def, call_args
-            when :cast
+            when "cast"
               codegen_primitive_cast node, target_def, call_args
-            when :allocate
+            when "allocate"
               codegen_primitive_allocate node, target_def, call_args
-            when :pointer_malloc
+            when "pointer_malloc"
               codegen_primitive_pointer_malloc node, target_def, call_args
-            when :pointer_set
+            when "pointer_set"
               codegen_primitive_pointer_set node, target_def, call_args
-            when :pointer_get
+            when "pointer_get"
               codegen_primitive_pointer_get node, target_def, call_args
-            when :pointer_address
+            when "pointer_address"
               codegen_primitive_pointer_address node, target_def, call_args
-            when :pointer_new
+            when "pointer_new"
               codegen_primitive_pointer_new node, target_def, call_args
-            when :pointer_realloc
+            when "pointer_realloc"
               codegen_primitive_pointer_realloc node, target_def, call_args
-            when :pointer_add
+            when "pointer_add"
               codegen_primitive_pointer_add node, target_def, call_args
-            when :pointer_diff
+            when "pointer_diff"
               codegen_primitive_pointer_diff node, target_def, call_args
-            when :struct_new
+            when "struct_new"
               codegen_primitive_struct_new node, target_def, call_args
-            when :struct_set
+            when "struct_set"
               codegen_primitive_struct_set node, target_def, call_args
-            when :struct_get
+            when "struct_get"
               codegen_primitive_struct_get node, target_def, call_args
-            when :union_new
+            when "union_new"
               codegen_primitive_union_new node, target_def, call_args
-            when :union_set
+            when "union_set"
               codegen_primitive_union_set node, target_def, call_args
-            when :union_get
+            when "union_get"
               codegen_primitive_union_get node, target_def, call_args
-            when :external_var_set
+            when "external_var_set"
               codegen_primitive_external_var_set node, target_def, call_args
-            when :external_var_get
+            when "external_var_get"
               codegen_primitive_external_var_get node, target_def, call_args
-            when :object_id
+            when "object_id"
               codegen_primitive_object_id node, target_def, call_args
-            when :object_crystal_type_id
+            when "object_crystal_type_id"
               codegen_primitive_object_crystal_type_id node, target_def, call_args
-            when :symbol_hash
-              codegen_primitive_symbol_hash node, target_def, call_args
-            when :symbol_to_s
+            when "symbol_to_s"
               codegen_primitive_symbol_to_s node, target_def, call_args
-            when :class
+            when "class"
               codegen_primitive_class node, target_def, call_args
-            when :fun_call
+            when "fun_call"
               codegen_primitive_fun_call node, target_def, call_args
-            when :tuple_indexer_known_index
+            when "tuple_indexer_known_index"
               codegen_primitive_tuple_indexer_known_index node, target_def, call_args
-            when :enum_value, :enum_new
+            when "enum_value", "enum_new"
               call_args[0]
             else
               raise "Bug: unhandled primitive in codegen: #{node.name}"
@@ -414,14 +412,14 @@ class Crystal::CodeGenVisitor
     end
 
     if type.is_a?(VirtualType)
-      @last = cast_to @last, type
+      @last = upcast(@last, type, base_type)
     end
 
     @last
   end
 
   def codegen_primitive_pointer_malloc(node, target_def, call_args)
-    type = node.type as PointerInstanceType
+    type = node.type.as(PointerInstanceType)
     llvm_type = llvm_embedded_type(type.element_type)
     last = array_malloc(llvm_type, call_args[1])
     memset last, int8(0), llvm_type.size
@@ -429,14 +427,14 @@ class Crystal::CodeGenVisitor
   end
 
   def codegen_primitive_pointer_set(node, target_def, call_args)
-    type = context.type.remove_typedef as PointerInstanceType
+    type = context.type.remove_typedef.as(PointerInstanceType)
     value = call_args[1]
     assign call_args[0], type.element_type, node.type, value
     value
   end
 
   def codegen_primitive_pointer_get(node, target_def, call_args)
-    type = context.type.remove_typedef as PointerInstanceType
+    type = context.type.remove_typedef.as(PointerInstanceType)
     to_lhs call_args[0], type.element_type
   end
 
@@ -449,7 +447,7 @@ class Crystal::CodeGenVisitor
   end
 
   def codegen_primitive_pointer_realloc(node, target_def, call_args)
-    type = context.type as PointerInstanceType
+    type = context.type.as(PointerInstanceType)
 
     casted_ptr = cast_to_void_pointer(call_args[0])
     size = builder.mul call_args[1], llvm_size(type.element_type)
@@ -467,7 +465,7 @@ class Crystal::CodeGenVisitor
 
   def codegen_primitive_struct_set(node, target_def, call_args)
     set_aggregate_field(node, target_def, call_args) do
-      type = context.type as CStructOrUnionType
+      type = context.type.as(CStructOrUnionType)
       name = target_def.name[0..-2]
 
       struct_field_ptr(type, name, call_args[0])
@@ -475,7 +473,7 @@ class Crystal::CodeGenVisitor
   end
 
   def codegen_primitive_struct_get(node, target_def, call_args)
-    type = context.type as CStructType
+    type = context.type.as(CStructType)
     value = to_lhs struct_field_ptr(type, target_def.name, call_args[0]), node.type
     value = check_c_fun node.type, value
     value
@@ -516,7 +514,7 @@ class Crystal::CodeGenVisitor
     end
 
     var_name = target_def.name[0...-1]
-    scope = context.type as CStructOrUnionType
+    scope = context.type.as(CStructOrUnionType)
     field_type = scope.vars[var_name].type
 
     # Check nil to pointer
@@ -544,7 +542,7 @@ class Crystal::CodeGenVisitor
   end
 
   def codegen_primitive_external_var_set(node, target_def, call_args)
-    external = target_def as External
+    external = target_def.as(External)
     name = external.real_name
     var = declare_lib_var name, node.type, external.attributes
 
@@ -562,8 +560,8 @@ class Crystal::CodeGenVisitor
   end
 
   def codegen_primitive_external_var_get(node, target_def, call_args)
-    external = target_def as External
-    name = (target_def as External).real_name
+    external = target_def.as(External)
+    name = target_def.as(External).real_name
     var = declare_lib_var name, node.type, external.attributes
 
     if external.type.passed_by_value?
@@ -591,10 +589,6 @@ class Crystal::CodeGenVisitor
 
   def codegen_primitive_symbol_to_s(node, target_def, call_args)
     load(gep @llvm_mod.globals[SYMBOL_TABLE_NAME], int(0), call_args[0])
-  end
-
-  def codegen_primitive_symbol_hash(node, target_def, call_args)
-    call_args[0]
   end
 
   def codegen_primitive_class(node, target_def, call_args)
@@ -648,7 +642,7 @@ class Crystal::CodeGenVisitor
     closure_ptr = call_args[0]
     args = call_args[1..-1]
 
-    fun_type = context.type as FunInstanceType
+    fun_type = context.type.as(FunInstanceType)
     0.upto(target_def.args.size - 1) do |i|
       arg = args[i]
       fun_arg_type = fun_type.fun_types[i]
@@ -695,13 +689,13 @@ class Crystal::CodeGenVisitor
   def codegen_primitive_tuple_indexer_known_index(node, target_def, call_args)
     type = context.type
     if type.is_a?(TupleInstanceType)
-      index = (node as TupleIndexer).index
+      index = node.as(TupleIndexer).index
       ptr = aggregate_index call_args[0], index
       to_lhs ptr, type.tuple_types[index]
     else
-      type = (type.instance_type as TupleInstanceType)
-      index = (node as TupleIndexer).index
-      type_id((type.tuple_types[index] as Type).metaclass)
+      type = (type.instance_type.as(TupleInstanceType))
+      index = node.as(TupleIndexer).index
+      type_id(type.tuple_types[index].as(Type).metaclass)
     end
   end
 

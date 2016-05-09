@@ -38,7 +38,24 @@ describe "Type inference: lib" do
   end
 
   it "reports error when changing var type and something breaks" do
-    assert_error "class LibFoo; def initialize; @value = 1; end; def value; @value; end; def value=(@value); end; end; f = LibFoo.new; f.value + 1; f.value = 'a'",
+    assert_error %(
+      class LibFoo
+        def initialize
+          @value = 1
+        end
+
+        def value
+          @value
+        end
+
+        def value=(@value : Char)
+        end
+      end
+
+      f = LibFoo.new
+      f.value + 1
+      f.value = 'a'
+      ),
       "undefined method '+' for Char"
   end
 
@@ -49,8 +66,9 @@ describe "Type inference: lib" do
       end
 
       class Foo
-        def value=(@value)
+        def value=(@value : Int32 | Char)
         end
+
         def value
           @value
         end
@@ -91,6 +109,11 @@ describe "Type inference: lib" do
 
   it "reports error out can only be used with lib funs" do
     assert_error "foo(out x)",
+      "out can only be used with lib funs"
+  end
+
+  it "reports error out can only be used with lib funs in named argument" do
+    assert_error "foo(x: out x)",
       "out can only be used with lib funs"
   end
 
@@ -182,8 +205,8 @@ describe "Type inference: lib" do
       LibC.foo(1)
       ") { float64 }
     mod = result.program
-    lib_type = mod.types["LibC"] as LibType
-    foo = lib_type.lookup_first_def("foo", false) as External
+    lib_type = mod.types["LibC"].as(LibType)
+    foo = lib_type.lookup_first_def("foo", false).as(External)
     foo.real_name.should eq("bar")
   end
 
@@ -412,7 +435,7 @@ describe "Type inference: lib" do
 
       LibSDL.init(0_u32)
       ))
-    sdl = result.program.types["LibSDL"] as LibType
+    sdl = result.program.types["LibSDL"].as(LibType)
     attrs = sdl.link_attributes.not_nil!
     attrs.size.should eq(2)
     attrs[0].lib.should eq("SDL")
@@ -473,7 +496,7 @@ describe "Type inference: lib" do
 
       LibSDL.init(0_u32)
       ))
-    sdl = result.program.types["LibSDL"] as LibType
+    sdl = result.program.types["LibSDL"].as(LibType)
     attrs = sdl.link_attributes.not_nil!
     attrs.size.should eq(2)
     attrs[0].lib.should eq("SDL")
@@ -493,7 +516,7 @@ describe "Type inference: lib" do
 
       LibSDL.init(0_u32)
       ))
-    sdl = result.program.types["LibSDL"] as LibType
+    sdl = result.program.types["LibSDL"].as(LibType)
     attrs = sdl.link_attributes.not_nil!
     attrs.size.should eq(1)
     attrs[0].lib.should eq("SDL")
@@ -666,5 +689,92 @@ describe "Type inference: lib" do
       LibFoo.foo(out x)
       ),
       "argument 'x' of LibFoo.foo cannot be passed as 'out' because it is not a pointer"
+  end
+
+  it "errors if redefining fun with different signature (#2468)" do
+    assert_error %(
+      fun foo
+      end
+
+      fun foo(x : Int32)
+      end
+      ),
+      "fun redefinition with different signature"
+  end
+
+  it "errors if using named args with variadic function" do
+    assert_error %(
+      lib LibC
+        fun foo(x : Int32, y : UInt8, ...) : Int32
+      end
+
+      LibC.foo y: 1_u8, x: 1
+      ),
+      "can't use named args with variadic function"
+  end
+
+  it "errors if using unknown named arg" do
+    assert_error %(
+      lib LibC
+        fun foo(x : Int32, y : UInt8) : Int32
+      end
+
+      LibC.foo y: 1_u8, x: 1, z: 2
+      ),
+      "no argument named 'z'"
+  end
+
+  it "errors if argument already specified" do
+    assert_error %(
+      lib LibC
+        fun foo(x : Int32, y : UInt8) : Int32
+      end
+
+      LibC.foo 1, x: 2
+      ),
+      "argument 'x' already specified"
+  end
+
+  it "errors if missing arugment" do
+    assert_error %(
+      lib LibC
+        fun foo(x : Int32, y : UInt8) : Int32
+      end
+
+      LibC.foo x: 2
+      ),
+      "missing argument: y"
+  end
+
+  it "errors if missing arugments" do
+    assert_error %(
+      lib LibC
+        fun foo(x : Int32, y : UInt8, z: Int32) : Int32
+      end
+
+      LibC.foo y: 1_u8
+      ),
+      "missing arguments: x, z"
+  end
+
+  it "can use named args" do
+    assert_type(%(
+      lib LibC
+        fun foo(x : Int32, y : UInt8) : Int32
+      end
+
+      LibC.foo y: 1_u8, x: 1
+      )) { int32 }
+  end
+
+  it "can use out with named args" do
+    assert_type(%(
+      lib LibC
+        fun foo(x : Int32*)
+      end
+
+      LibC.foo(x: out x)
+      x
+      )) { int32 }
   end
 end

@@ -22,7 +22,6 @@ module Crystal
     property observers : Dependencies?
     property input_observer : Call?
 
-    @dirty : Bool
     @dirty = false
 
     @type : Type?
@@ -244,11 +243,22 @@ module Crystal
     end
   end
 
+  class Var
+    def initialize(@name : String, @type : Type)
+    end
+
+    def_equals name, type?
+  end
+
   # Fictitious node to represent primitives
   class Primitive < ASTNode
-    getter name : Symbol
+    getter name : String
 
-    def initialize(@name : Symbol, @type : Type? = nil)
+    def self.new(name : Symbol, type : Type? = nil)
+      new(name.to_s, type)
+    end
+
+    def initialize(@name : String, @type : Type? = nil)
     end
 
     def clone_without_location
@@ -263,7 +273,7 @@ module Crystal
     getter index : Int32
 
     def initialize(@index : Int32)
-      super(:tuple_indexer_known_index)
+      super("tuple_indexer_known_index")
     end
 
     def clone_without_location
@@ -290,6 +300,9 @@ module Crystal
   end
 
   class Arg
+    def initialize(@name, @default_value : ASTNode? = nil, @restriction : ASTNode? = nil, @type : Type? = nil)
+    end
+
     def clone_without_location
       arg = previous_def
 
@@ -362,6 +375,107 @@ module Crystal
       a_def.previous = previous
       a_def
     end
+
+    # Yields `arg, arg_index, object, object_index` corresponding
+    # to arguments matching the given objects, taking into account this
+    # def's splat index.
+    def match(objects, &block)
+      Splat.match(self, objects) do |arg, arg_index, object, object_index|
+        yield arg, arg_index, object, object_index
+      end
+    end
+  end
+
+  class Macro
+    # Yields `arg, arg_index, object, object_index` corresponding
+    # to arguments matching the given objects, taking into account this
+    # macro's splat index.
+    def match(objects, &block)
+      Splat.match(self, objects) do |arg, arg_index, object, object_index|
+        yield arg, arg_index, object, object_index
+      end
+    end
+  end
+
+  class Splat
+    # Yields `arg, arg_index, object, object_index` corresponding
+    # to def arguments matching the given objects, taking into account the
+    # def's splat index.
+    def self.match(a_def, objects, &block)
+      Splat.before(a_def, objects) do |arg, arg_index, object, object_index|
+        yield arg, arg_index, object, object_index
+      end
+      Splat.at(a_def, objects) do |arg, arg_index, object, object_index|
+        yield arg, arg_index, object, object_index
+      end
+      Splat.after(a_def, objects) do |arg, arg_index, object, object_index|
+        yield arg, arg_index, object, object_index
+      end
+    end
+
+    # Yields `arg, arg_index, object, object_index` corresponding
+    # to arguments before a def's splat index, matching the given objects.
+    # If there are more objects than arguments in the method, they are not yielded.
+    # If splat index is `nil`, all args and objects (with their indices) are yielded.
+    def self.before(a_def, objects, &block)
+      splat = a_def.splat_index || a_def.args.size
+      splat.times do |i|
+        obj = objects[i]?
+        break unless obj
+
+        yield a_def.args[i], i, obj, i
+        i += 1
+      end
+      nil
+    end
+
+    # Yields `arg, arg_index, object, object_index` corresponding
+    # to arguments at a def's splat index, matching the given objects.
+    # If there are more objects than arguments in the method, they are not yielded.
+    # If splat index is `nil`, all args and objects (with their indices) are yielded.
+    def self.at(a_def, objects, &block)
+      splat = a_def.splat_index
+      return unless splat
+
+      splat_size = objects.size - (a_def.args.size - 1)
+      splat_size.times do |i|
+        obj_index = splat + i
+        obj = objects[obj_index]?
+        break unless obj
+
+        yield a_def.args[splat], splat, obj, obj_index
+      end
+
+      nil
+    end
+
+    # Yields `arg, arg_index, object, object_index` corresponding
+    # to arguments after a def's splat index, matching the given objects.
+    # If there are more objects than arguments in the method, they are not yielded.
+    # If splat index is `nil`, all args and objects (with their indices) are yielded.
+    def self.after(a_def, objects, &block)
+      splat = a_def.splat_index
+      return unless splat
+
+      splat_size = objects.size - (a_def.args.size - 1)
+      remaining_size = objects.size - (splat + splat_size)
+      remaining_size.times do |i|
+        arg_index = splat + 1 + i
+        obj_index = splat + splat_size + i
+        obj = objects[obj_index]?
+        break unless obj
+
+        yield a_def.args[arg_index], arg_index, obj, obj_index
+      end
+
+      nil
+    end
+
+    # Returns the splat size of this def matching the given objects.
+    # Returns `nil` if this def has no splat index.
+    def self.size(a_def, objects)
+      objects.size - (a_def.args.size - 1)
+    end
   end
 
   class PointerOf
@@ -376,7 +490,7 @@ module Crystal
     end
 
     def grew?(old_type, new_type)
-      new_type = new_type as PointerInstanceType
+      new_type = new_type.as(PointerInstanceType)
       element_type = new_type.element_type
       type_includes?(element_type, old_type)
     end
@@ -423,12 +537,6 @@ module Crystal
     property? upcast : Bool
     @upcast = false
 
-    def self.apply(node : ASTNode, type : Type)
-      cast = Cast.new(node, Var.new("cast", type))
-      cast.set_type(type)
-      cast
-    end
-
     def update(from = nil)
       to_type = to.type
 
@@ -464,6 +572,49 @@ module Crystal
     end
   end
 
+  class NilableCast
+    property? upcast : Bool
+    @upcast = false
+
+    @non_nilable_type : Type?
+    getter! non_nilable_type
+
+    def update(from = nil)
+      to_type = to.type
+
+      obj_type = obj.type?
+
+      # If we don't know what type we are casting from, leave it as nilable to_type
+      unless obj_type
+        @non_nilable_type = non_nilable_type = to_type.virtual_type
+
+        self.type = to_type.program.nilable(non_nilable_type)
+        return
+      end
+
+      filtered_type = obj_type.filter_by(to_type)
+
+      # If the filtered type didn't change it means that an
+      # upcast is being made, for example:
+      #
+      #   1 as Int32 | Float64
+      #   Bar.new as Foo # where Bar < Foo
+      if obj_type == filtered_type && obj_type != to_type && !to_type.is_a?(GenericClassType)
+        filtered_type = to_type.virtual_type
+        @upcast = true
+      end
+
+      # If we don't have a matching type, leave it as the to_type:
+      # later (in after type inference) we will check again.
+      filtered_type ||= to_type.virtual_type
+
+      @non_nilable_type = filtered_type
+
+      # The final type is nilable
+      self.type = filtered_type.program.nilable(filtered_type)
+    end
+  end
+
   class FunDef
     property! external : External
   end
@@ -492,7 +643,7 @@ module Crystal
     end
 
     def return_type
-      (@type as FunInstanceType).return_type
+      @type.as(FunInstanceType).return_type
     end
   end
 
@@ -538,7 +689,7 @@ module Crystal
           end
         end
 
-        type_var as TypeVar
+        type_var.as(TypeVar)
       end
 
       begin
@@ -562,7 +713,7 @@ module Crystal
     def update(from = nil)
       return unless elements.all? &.type?
 
-      types = elements.map { |exp| exp.type as TypeVar }
+      types = elements.map { |exp| exp.type.as(TypeVar) }
       tuple_type = mod.tuple_of types
 
       if generic_type_too_nested?(tuple_type.generic_nest)
@@ -695,9 +846,16 @@ module Crystal
 
   class Call
     property before_vars : MetaVars?
-  end
 
-  class Macro
+    def clone_without_location
+      cloned = previous_def
+
+      # This is needed because this call might have resolved
+      # to a macro and has an expansion.
+      cloned.expanded = expanded.clone
+
+      cloned
+    end
   end
 
   class Block
@@ -759,7 +917,7 @@ module Crystal
   {% for name in %w(And Or
                    ArrayLiteral HashLiteral RegexLiteral RangeLiteral
                    Case StringInterpolation
-                   MacroExpression MacroIf MacroFor) %}
+                   MacroExpression MacroIf MacroFor MultiAssign) %}
     class {{name.id}}
       include ExpandableNode
     end

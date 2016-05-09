@@ -1,10 +1,6 @@
-lib LibC
-  fun atof(str : Char*) : Double
-  fun strtof(str : Char*, endp : Char**) : Float
-  fun strlen(s : Char*) : SizeT
-  fun snprintf(str : Char*, n : SizeT, format : Char*, ...) : Int
-  fun strcmp(Char*, Char*) : LibC::Int
-end
+require "c/stdlib"
+require "c/stdio"
+require "c/string"
 
 # A String represents an immutable sequence of UTF-8 characters.
 #
@@ -214,13 +210,13 @@ class String
   def self.new(capacity : Int)
     check_capacity_in_bounds(capacity)
 
-    str = GC.malloc_atomic((capacity + HEADER_SIZE + 1).to_u32) as UInt8*
-    buffer = (str as String).to_unsafe
+    str = GC.malloc_atomic((capacity + HEADER_SIZE + 1).to_u32).as(UInt8*)
+    buffer = str.as(String).to_unsafe
     bytesize, size = yield buffer
-    str_header = str as {Int32, Int32, Int32}*
+    str_header = str.as({Int32, Int32, Int32}*)
     str_header.value = {TYPE_ID, bytesize.to_i, size.to_i}
     buffer[bytesize] = 0_u8
-    str as String
+    str.as(String)
   end
 
   # Builds a String by creating a `String::Builder` with the given initial capacity, yielding
@@ -234,7 +230,7 @@ class String
   # end
   # str # => "hello 1"
   # ```
-  def self.build(capacity = 64)
+  def self.build(capacity = 64) : self
     String::Builder.build(capacity) do |builder|
       yield builder
     end
@@ -1882,7 +1878,7 @@ class String
       return ""
     elsif bytesize == 1
       return String.new(times) do |buffer|
-        Intrinsics.memset(buffer as Void*, to_unsafe[0], times, 0, false)
+        Intrinsics.memset(buffer.as(Void*), to_unsafe[0], times, 0, false)
         {times, times}
       end
     end
@@ -1945,15 +1941,15 @@ class String
     nil
   end
 
-  # Returns the index of _last_ appearance of *c* in the string,
+  # Returns the index of the _last_ appearance of *c* in the string,
   # If `offset` is present, it defines the position to _end_ the search
-  # (characters beyond that point will be ignored).
+  # (characters beyond this point are ignored).
   #
   # ```
-  # "Hello, World".index('o')    # => 8
-  # "Hello, World".index('Z')    # => nil
-  # "Hello, World".index("o", 5) # => 4
-  # "Hello, World".index("H", 2) # => nil
+  # "Hello, World".rindex('o')    # => 8
+  # "Hello, World".rindex('Z')    # => nil
+  # "Hello, World".rindex("o", 5) # => 4
+  # "Hello, World".rindex("H", 2) # => nil
   # ```
   def rindex(search : Char, offset = size - 1)
     offset += size if offset < 0
@@ -2476,7 +2472,7 @@ class String
       end
 
       if count == 1
-        Intrinsics.memset(buffer as Void*, char.ord.to_u8, difference.to_u32, 0_u32, false)
+        Intrinsics.memset(buffer.as(Void*), char.ord.to_u8, difference.to_u32, 0_u32, false)
         buffer += difference
       else
         difference.times do

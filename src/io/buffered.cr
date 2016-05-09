@@ -9,18 +9,9 @@ module IO::Buffered
 
   BUFFER_SIZE = 8192
 
-  @in_buffer : Pointer(UInt8)?
-  @in_buffer_rem : Slice(UInt8)
-  @in_buffer_rem = Slice.new(Pointer(UInt8).null, 0)
-
-  @out_buffer : Pointer(UInt8)?
-  @out_count : Int32
+  @in_buffer_rem = Slice(UInt8).new(Pointer(UInt8).null, 0)
   @out_count = 0
-
-  @sync : Bool
   @sync = false
-
-  @flush_on_newline : Bool
   @flush_on_newline = false
 
   # Reads at most *slice.size* bytes from the wrapped IO into *slice*. Returns the number of bytes read.
@@ -289,10 +280,10 @@ module IO::Buffered
   end
 
   private def in_buffer
-    @in_buffer ||= GC.malloc_atomic(BUFFER_SIZE.to_u32) as UInt8*
+    @in_buffer ||= GC.malloc_atomic(BUFFER_SIZE.to_u32).as(UInt8*)
   end
 
   private def out_buffer
-    @out_buffer ||= GC.malloc_atomic(BUFFER_SIZE.to_u32) as UInt8*
+    @out_buffer ||= GC.malloc_atomic(BUFFER_SIZE.to_u32).as(UInt8*)
   end
 end

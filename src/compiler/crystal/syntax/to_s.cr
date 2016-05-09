@@ -15,10 +15,6 @@ module Crystal
 
   class ToSVisitor < Visitor
     @str : IO
-    @indent : Int32
-    @inside_macro : Int32
-    @inside_lib : Bool
-    @inside_struct_or_union : Bool
 
     def initialize(@str = MemoryIO.new)
       @indent = 0
@@ -47,9 +43,11 @@ module Crystal
     end
 
     def visit(node : SymbolLiteral)
-      @str << ':'
+      visit_symbol_literal_value node.value
+    end
 
-      value = node.value
+    def visit_symbol_literal_value(value : String)
+      @str << ':'
       if Symbol.needs_quotes?(value)
         value.inspect(@str)
       else
@@ -273,10 +271,10 @@ module Crystal
         @str << decorate_call(node, "=")
         @str << " "
         node.args[1].accept self
-      elsif node_obj && !is_alpha(node.name) && node.args.size == 0
+      elsif node_obj && !is_alpha_or_underscore(node.name) && node.args.size == 0
         @str << decorate_call(node, node.name)
         in_parenthesis(need_parens, node_obj)
-      elsif node_obj && !is_alpha(node.name) && node.args.size == 1
+      elsif node_obj && !is_alpha_or_underscore(node.name) && node.args.size == 1
         in_parenthesis(need_parens, node_obj)
 
         @str << " "
@@ -365,7 +363,7 @@ module Crystal
       when Call
         case obj.args.size
         when 0
-          !is_alpha(obj.name)
+          !is_alpha_or_underscore(obj.name)
         else
           true
         end
@@ -459,6 +457,10 @@ module Crystal
 
     def is_alpha(string)
       string[0].alpha?
+    end
+
+    def is_alpha_or_underscore(string)
+      string[0].alpha? || string[0] == '_'
     end
 
     def visit(node : Assign)
@@ -594,6 +596,7 @@ module Crystal
         @str << "("
         node.args.each_with_index do |arg, i|
           @str << ", " if i > 0
+          @str << "*" if i == node.splat_index
           arg.accept self
         end
         if block_arg = node.block_arg
@@ -785,12 +788,6 @@ module Crystal
       false
     end
 
-    def visit(node : Virtual)
-      node.name.accept self
-      @str << "+"
-      false
-    end
-
     def visit(node : Metaclass)
       node.name.accept self
       @str << "."
@@ -879,6 +876,10 @@ module Crystal
       node.var.accept self
       @str << " : "
       node.declared_type.accept self
+      if value = node.value
+        @str << " = "
+        value.accept self
+      end
       false
     end
 
@@ -1122,9 +1123,20 @@ module Crystal
       false
     end
 
+    def visit(node : NilableCast)
+      accept_with_maybe_begin_end node.obj
+      @str << " "
+      @str << keyword("as?")
+      @str << " "
+      node.to.accept self
+      false
+    end
+
     def visit(node : RespondsTo)
       node.obj.accept self
-      @str << ".responds_to?(" << node.name << ")"
+      @str << ".responds_to?("
+      visit_symbol_literal_value node.name
+      @str << ")"
       false
     end
 

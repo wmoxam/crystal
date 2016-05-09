@@ -25,6 +25,10 @@ describe "Type inference: primitives" do
     assert_type("'a'") { char }
   end
 
+  it "types char ord" do
+    assert_type("'a'.ord") { int32 }
+  end
+
   it "types a symbol" do
     assert_type(":foo") { symbol }
   end
@@ -79,7 +83,7 @@ describe "Type inference: primitives" do
       x = foo 1, 'a'
       y = foo 'a', 1
       x
-      )) { (types["Hash"] as GenericClassType).instantiate([int32, char] of TypeVar) }
+      )) { generic_class "Hash", int32, char }
   end
 
   it "computes correct hash value type if it's a function literal (#320)" do
@@ -87,10 +91,7 @@ describe "Type inference: primitives" do
       require "prelude"
 
       {"foo" => ->{ true }}
-      )) do
-      (types["Hash"] as GenericClassType)
-        .instantiate([string, fun_of(bool)] of TypeVar)
-    end
+      )) { generic_class "Hash", string, fun_of(bool) }
   end
 
   it "extends from Number and doesn't find + method" do
@@ -175,5 +176,51 @@ describe "Type inference: primitives" do
       1.meth
       ),
       "can't use instance variables inside primitive types (at Int32)"
+  end
+
+  it "types @[Primitive] method" do
+    assert_type(%(
+      struct Int32
+        @[Primitive(:binary)]
+        def +(other : Int32) : Int32
+        end
+      end
+
+      1 + 2
+      )) { int32 }
+  end
+
+  it "errors if @[Primitive] has no args" do
+    assert_error %(
+      struct Int32
+        @[Primitive]
+        def +(other : Int32) : Int32
+        end
+      end
+      ),
+      "expected Primitive attribute to have one argument"
+  end
+
+  it "errors if @[Primitive] has non-symbol arg" do
+    assert_error %(
+      struct Int32
+        @[Primitive("foo")]
+        def +(other : Int32) : Int32
+        end
+      end
+      ),
+      "expected Primitive argument to be a symbol literal"
+  end
+
+  it "errors if @[Primitive] method has body" do
+    assert_error %(
+      struct Int32
+        @[Primitive(:binary)]
+        def +(other : Int32) : Int32
+          1
+        end
+      end
+      ),
+      "method marked as Primitive must have an empty body"
   end
 end

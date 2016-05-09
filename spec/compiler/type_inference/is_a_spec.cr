@@ -13,8 +13,8 @@ describe "Type inference: is_a?" do
       end
       "
     result = infer_type nodes
-    mod, nodes = result.program, result.node as Expressions
-    (nodes.last as If).then.type.should eq(mod.int32)
+    mod, nodes = result.program, result.node.as(Expressions)
+    nodes.last.as(If).then.type.should eq(mod.int32)
   end
 
   it "restricts type inside if scope 2" do
@@ -33,17 +33,16 @@ describe "Type inference: is_a?" do
       "
 
     result = infer_type nodes
-    mod, nodes = result.program, result.node as Expressions
+    mod, nodes = result.program, result.node.as(Expressions)
 
-    foo = mod.types["Foo"] as GenericClassType
-    (nodes.last as If).then.type.should eq(foo.instantiate([mod.int32] of TypeVar))
+    foo = mod.types["Foo"].as(GenericClassType)
+    nodes.last.as(If).then.type.should eq(foo.instantiate([mod.int32] of TypeVar))
   end
 
   it "restricts type inside if scope 3" do
     nodes = parse "
       class Foo
-        def initialize(x)
-          @x = x
+        def initialize(@x : Int32)
         end
       end
 
@@ -54,8 +53,8 @@ describe "Type inference: is_a?" do
       "
 
     result = infer_type nodes
-    mod, nodes = result.program, result.node as Expressions
-    (nodes.last as If).then.type.should eq(mod.types["Foo"])
+    mod, nodes = result.program, result.node.as(Expressions)
+    nodes.last.as(If).then.type.should eq(mod.types["Foo"])
   end
 
   it "restricts other types inside if else" do
@@ -169,7 +168,7 @@ describe "Type inference: is_a?" do
   it "restricts type in else but lazily" do
     assert_type("
       class Foo
-        def initialize(@x)
+        def initialize(@x : Int32)
         end
 
         def x

@@ -116,7 +116,7 @@ describe "Type inference: class var" do
       end
 
       Foo.bar
-      )) { (types["Bar"] as GenericClassType).instantiate([types["Foo"].virtual_type.metaclass] of TypeVar) }
+      )) { generic_class "Bar", types["Foo"].virtual_type.metaclass }
   end
 
   it "errors if using self as type var but there's no self" do
@@ -244,7 +244,7 @@ describe "Type inference: class var" do
 
       Foo.foo
       ",
-      "undefined class variable"
+      "Can't infer the type of class variable '@@foo' of Foo"
   end
 
   it "errors if using class variable at the top level" do
@@ -253,5 +253,74 @@ describe "Type inference: class var" do
       @@foo
       ",
       "can't use class variables at the top level"
+  end
+
+  it "errors when typing a class variable inside a method" do
+    assert_error %(
+      def foo
+        @@x : Int32
+      end
+
+      foo
+      ),
+      "declaring the type of a class variable must be done at the class level"
+  end
+
+  it "errors if using local variable in initializer" do
+    assert_error %(
+      class Foo
+        @@x : Int32
+
+        a = 1
+        @@x = a
+      end
+      ),
+      "undefined local variable or method 'a'"
+  end
+
+  it "errors on undefined constant (1)" do
+    assert_error %(
+      class Foo
+        def self.foo
+          @@x = Bar.new
+        end
+      end
+
+      Foo.foo
+      ),
+      "undefined constant Bar"
+  end
+
+  it "errors on undefined constant (2)" do
+    assert_error %(
+      class Foo
+        @@x = Bar.new
+      end
+
+      Foo.foo
+      ),
+      "undefined constant Bar"
+  end
+
+  it "infers in multiple assign for tuple type (1)" do
+    assert_type(%(
+      class Foo
+        def self.foo
+          @@x, @@y = Bar.method
+        end
+
+        def self.x
+          @@x
+        end
+      end
+
+      class Bar
+        def self.method : {Int32, Bool}
+          {1, true}
+        end
+      end
+
+      Foo.x
+      )) { nilable int32 }
   end
 end

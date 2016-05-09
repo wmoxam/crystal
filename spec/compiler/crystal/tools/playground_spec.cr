@@ -26,20 +26,24 @@ private def assert_agent_eq(source, expected)
   instrument(source).should eq(expected)
 end
 
+class Crystal::Playground::Agent
+  @ws : HTTP::WebSocket | Crystal::Playground::TestAgent::FakeSocket
+end
+
 class Crystal::Playground::TestAgent < Playground::Agent
   class FakeSocket
     property message
 
-    def send(@message)
+    def send(@message : String)
     end
   end
 
-  def initialize(url, @tag)
-    @ws = FakeSocket.new
+  def initialize(url, @tag : Int32)
+    @ws = @fake_socket = FakeSocket.new
   end
 
   def last_message
-    @ws.message
+    @fake_socket.message
   end
 end
 
@@ -55,9 +59,9 @@ describe Playground::Agent do
     agent.i(1, ["x", "y"]) { {x, y} }.should eq({3, 4})
     agent.last_message.should eq(%({"tag":32,"type":"value","line":1,"value":"{3, 4}","value_type":"{Int32, Int32}","data":{"x":"3","y":"4"}}))
 
-    agent.i(1) { nil as Void? }
+    agent.i(1) { nil.as(Void?) }
     agent.last_message.should eq(%({"tag":32,"type":"value","line":1,"value":"nil","value_type":"Void?"}))
-    agent.i(1) { a_sample_void as Void? }
+    agent.i(1) { a_sample_void.as(Void?) }
     agent.last_message.should eq(%({"tag":32,"type":"value","line":1,"value":"(void)","value_type":"Void?"}))
     agent.i(1) { a_sample_void }
     agent.last_message.should eq(%({"tag":32,"type":"value","line":1,"value":"(void)","value_type":"Void"}))

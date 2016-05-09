@@ -1,6 +1,7 @@
 require "intrinsics"
+require "primitives"
 require "reflect"
-require "libc"
+require "lib_c"
 require "macros"
 require "object"
 require "reference"

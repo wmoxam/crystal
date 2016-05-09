@@ -20,7 +20,7 @@ class Crystal::Def
     end
 
     # If there are no named args and all unspecified default arguments are magic
-    # constants we can return outself (magic constants will be filled later)
+    # constants we can return ourself (magic constants will be filled later)
     if !named_args && !splat_index
       all_magic = true
       args_size.upto(args.size - 1) do |index|
@@ -84,10 +84,10 @@ class Crystal::Def
     end
 
     expansion = Def.new(new_name, new_args, nil, receiver.clone, block_arg.clone, return_type.clone, macro_def?, yields)
-    expansion.instance_vars = instance_vars
     expansion.args.each { |arg| arg.default_value = nil }
     expansion.calls_super = calls_super
     expansion.calls_initialize = calls_initialize
+    expansion.calls_previous_def = calls_previous_def
     expansion.uses_block_arg = uses_block_arg
     expansion.yields = yields
     expansion.location = location
@@ -144,20 +144,8 @@ class Crystal::Def
         new_body << Assign.new(Var.new(args[splat_index].name), tuple)
       end
 
-      if macro_def?
-        # If this is a macro def, we need to convert the previous assignments to
-        # strings and then to a MacroLiteral, so they are intepreted as regular code
-        # and not special nodes like Var, Assign, etc.
-        literal_body = String.build do |str|
-          Expressions.from(new_body).to_s(str)
-          str << ";"
-        end
-        new_literal = MacroLiteral.new(literal_body)
-        expansion.body = Expressions.from([new_literal, body.clone] of ASTNode)
-      else
-        new_body.push body
-        expansion.body = Expressions.new(new_body)
-      end
+      new_body.push body
+      expansion.body = Expressions.new(new_body)
     else
       new_args = [] of ASTNode
       body = [] of ASTNode
@@ -201,10 +189,7 @@ class Crystal::Def
   end
 
   class ReplaceFreeVarTransformer < Transformer
-    @free_var_name : String
-    @replacement_name : String
-
-    def initialize(@free_var_name, @replacement_name)
+    def initialize(@free_var_name : String, @replacement_name : String)
     end
 
     def transform(node : Generic)

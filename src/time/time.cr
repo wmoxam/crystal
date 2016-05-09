@@ -1,20 +1,5 @@
-lib LibC
-  struct TimeZone
-    tz_minuteswest : Int
-    tz_dsttime : Int
-  end
-
-  fun gettimeofday(tp : TimeVal*, tzp : TimeZone*) : Int
-
-  ifdef linux
-    fun tzset : Void
-    $timezone : Int
-  end
-end
-
-ifdef linux
-  LibC.tzset
-end
+require "c/sys/time"
+require "c/time"
 
 # `Time` represents an instance in time. Here are some examples:
 #
@@ -151,7 +136,7 @@ struct Time
     @encoded |= kind.value << KindShift
   end
 
-  def self.new(time : LibC::TimeSpec, kind = Kind::Unspecified)
+  def self.new(time : LibC::Timespec, kind = Kind::Unspecified)
     new(UnixEpoch + time.tv_sec.to_i64 * Span::TicksPerSecond + (time.tv_nsec.to_i64 * 0.01).to_i64, kind)
   end
 
@@ -161,7 +146,7 @@ struct Time
   # ```
   # Time.epoch(981173106) # => 2001-02-03 04:05:06 UTC
   # ```
-  def self.epoch(seconds : Int)
+  def self.epoch(seconds : Int) : self
     new(UnixEpoch + seconds.to_i64 * Span::TicksPerSecond, Kind::Utc)
   end
 
@@ -172,7 +157,7 @@ struct Time
   # time = Time.epoch_ms(981173106789) # => 2001-02-03 04:05:06 UTC
   # time.millisecond                   # => 789
   # ```
-  def self.epoch_ms(milliseconds : Int)
+  def self.epoch_ms(milliseconds : Int) : self
     new(UnixEpoch + milliseconds.to_i64 * Span::TicksPerMillisecond, Kind::Utc)
   end
 
@@ -231,11 +216,11 @@ struct Time
     Span.new(ticks - other.ticks)
   end
 
-  def self.now
+  def self.now : self
     new
   end
 
-  def self.utc_now
+  def self.utc_now : self
     new utc_ticks, Kind::Utc
   end
 
@@ -317,7 +302,7 @@ struct Time
     @encoded
   end
 
-  def self.days_in_month(year, month)
+  def self.days_in_month(year, month) : Int32
     unless 1 <= month <= 12
       raise ArgumentError.new "invalid month"
     end
@@ -330,7 +315,7 @@ struct Time
     days[month]
   end
 
-  def self.leap_year?(year)
+  def self.leap_year?(year) : Bool
     unless 1 <= year <= 9999
       raise ArgumentError.new "invalid year"
     end
@@ -366,7 +351,7 @@ struct Time
   # ```
   # Time.parse("2016-04-05", "%F") # => 2016-04-05 00:00:00
   # ```
-  def self.parse(time : String, pattern : String, kind = Time::Kind::Unspecified)
+  def self.parse(time : String, pattern : String, kind = Time::Kind::Unspecified) : self
     Format.new(pattern, kind).parse(time)
   end
 
@@ -549,15 +534,12 @@ struct Time
   end
 
   def self.local_ticks
-    compute_ticks do |ticks, tp, tz|
-      ticks - tz
-    end
+    ticks, offset = compute_ticks_and_offset
+    ticks + offset
   end
 
   def self.utc_ticks
-    compute_ticks do |ticks, tp, tz|
-      ticks
-    end
+    compute_ticks
   end
 
   # Returns the local time offset in minutes relative to GMT.
@@ -567,42 +549,73 @@ struct Time
   # Time.local_offset_in_minutes # => -180
   # ```
   def self.local_offset_in_minutes
-    ifdef linux
-      -LibC.timezone.to_i32 / 60
-    else # darwin, openbsd
-      if LibC.gettimeofday(nil, out tzp) != 0
-        raise Errno.new("gettimeofday")
-      end
-      -tzp.tz_minuteswest.to_i32
-    end
+    compute_offset / Span::TicksPerMinute
   end
 
   protected def self.compute_utc_ticks(ticks)
-    compute_ticks do |t, tp, tz|
-      ticks + tz
-    end
+    ticks - compute_offset
   end
 
   protected def self.compute_local_ticks(ticks)
-    compute_ticks do |t, tp, tz|
-      ticks - tz
-    end
+    ticks + compute_offset
+  end
+
+  # Returns `ticks, offset`, where `ticks` is the number of ticks
+  # for "now", and `offset` is the number of ticks for now's timezone offset.
+  private def self.compute_ticks_and_offset
+    second, tenth_microsecond = compute_second_and_tenth_microsecond
+    ticks = compute_ticks(second, tenth_microsecond)
+    offset = compute_offset(second)
+    {ticks, offset}
   end
 
   private def self.compute_ticks
-    if LibC.gettimeofday(out tp, out tzp) != 0
-      raise Errno.new("gettimeofday")
-    end
-    ticks = tp.tv_sec.to_i64 * Span::TicksPerSecond + tp.tv_usec.to_i64 * 10_i64
-    ticks += UnixEpoch
+    second, tenth_microsecond = compute_second_and_tenth_microsecond
+    compute_ticks(second, tenth_microsecond)
+  end
 
-    ifdef linux
-      tz = LibC.timezone.to_i64 / 60
-    else # darwin, openbsd
-      tz = tzp.tz_minuteswest.to_i64
+  private def self.compute_ticks(second, tenth_microsecond)
+    UnixEpoch +
+      second.to_i64 * Span::TicksPerSecond +
+      tenth_microsecond.to_i64
+  end
+
+  private def self.compute_offset
+    second, tenth_microsecond = compute_second_and_tenth_microsecond
+    compute_offset(second)
+  end
+
+  private def self.compute_offset(second)
+    LibC.tzset
+    offset = nil
+
+    {% if LibC.methods.includes?("daylight".id) %}
+      if LibC.daylight == 0
+        # current TZ doesn't have any DST, neither in past, present or future
+        offset = -LibC.timezone.to_i64
+      end
+    {% end %}
+
+    unless offset
+      # current TZ may have DST, either in past, present or future
+      ret = LibC.localtime_r(pointerof(second), out tm)
+      raise Errno.new("localtime_r") if ret.null?
+      offset = tm.tm_gmtoff.to_i64
     end
 
-    yield ticks, tp, tz * Span::TicksPerMinute
+    offset / 60 * Span::TicksPerMinute
+  end
+
+  private def self.compute_second_and_tenth_microsecond
+    ifdef darwin
+      ret = LibC.gettimeofday(out timeval, nil)
+      raise Errno.new("gettimeofday") unless ret == 0
+      {timeval.tv_sec, timeval.tv_usec.to_i64 * 10}
+    else
+      ret = LibC.clock_gettime(LibC::CLOCK_REALTIME, out timespec)
+      raise Errno.new("clock_gettime") unless ret == 0
+      {timespec.tv_sec, timespec.tv_nsec / 100}
+    end
   end
 end
 

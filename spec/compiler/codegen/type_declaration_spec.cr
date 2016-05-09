@@ -35,7 +35,7 @@ describe "Code gen: type declaration" do
   it "codegens initialize instance var with var declaration" do
     run("
       class Foo
-        @x = begin
+        @x : Int32 = begin
           a = 1
           a
         end
@@ -47,5 +47,19 @@ describe "Code gen: type declaration" do
 
       Foo.new.x
       ").to_i.should eq(1)
+  end
+
+  it "declares and initializes" do
+    run(%(
+      class Foo
+        @x : Int32 = 42
+
+        def x
+          @x
+        end
+      end
+
+      Foo.new.x
+      )).to_i.should eq(42)
   end
 end

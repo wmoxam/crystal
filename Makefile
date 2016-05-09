@@ -7,11 +7,8 @@ SOURCES := $(shell find src -name '*.cr')
 SPEC_SOURCES := $(shell find spec -name '*.cr')
 FLAGS := $(if $(release),--release )$(if $(stats),--stats )$(if $(threads),--threads $(threads) )
 EXPORTS := $(if $(release),,CRYSTAL_CONFIG_PATH=`pwd`/src)
-SHELL = /bin/bash
-LLVM_CONFIG := $(shell command -v llvm-config-3.6 llvm-config-3.5 llvm-config | head -n 1)
-ifeq ($(strip $(LLVM_CONFIG)),)
-	LLVM_CONFIG = llvm-config
-endif
+SHELL = bash
+LLVM_CONFIG := $(shell command -v llvm-config-3.6 llvm-config36 llvm-config-3.5 llvm-config35 llvm-config | head -n 1)
 LLVM_EXT_DIR = src/llvm/ext
 LLVM_EXT_OBJ = $(LLVM_EXT_DIR)/llvm_ext.o
 LIB_CRYSTAL_SOURCES = $(shell find src/ext -name '*.c')
@@ -27,7 +24,7 @@ all: crystal
 spec: all_spec
 	$(O)/all_spec
 doc:
-	$(BUILD_PATH) ./bin/crystal doc docs/main.cr
+	$(BUILD_PATH) ./bin/crystal doc src/docs_main.cr
 
 crystal: $(O)/crystal
 all_spec: $(O)/all_spec

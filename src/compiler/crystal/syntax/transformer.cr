@@ -53,7 +53,7 @@ module Crystal
       end
 
       if named_args = node.named_args
-        named_args.map! { |named_arg| named_arg.transform(self) as NamedArgument }
+        named_args.map! { |named_arg| named_arg.transform(self).as(NamedArgument) }
       end
 
       node
@@ -237,7 +237,7 @@ module Crystal
     end
 
     def transform(node : Generic)
-      node.name = node.name.transform(self) as Path
+      node.name = node.name.transform(self).as(Path)
       transform_many node.type_vars
       node
     end
@@ -265,11 +265,6 @@ module Crystal
 
     def transform(node : Union)
       transform_many node.types
-      node
-    end
-
-    def transform(node : Virtual)
-      node.name = node.name.transform(self)
       node
     end
 
@@ -301,7 +296,7 @@ module Crystal
     end
 
     def transform(node : Block)
-      node.args.map! { |exp| exp.transform(self) as Var }
+      node.args.map! { |exp| exp.transform(self).as(Var) }
       node.body = node.body.transform(self)
       node
     end
@@ -484,6 +479,12 @@ module Crystal
     end
 
     def transform(node : Cast)
+      node.obj = node.obj.transform(self)
+      node.to = node.to.transform(self)
+      node
+    end
+
+    def transform(node : NilableCast)
       node.obj = node.obj.transform(self)
       node.to = node.to.transform(self)
       node

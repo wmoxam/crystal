@@ -1,3 +1,5 @@
+require "c/stdio"
+require "c/string"
 require "unwind"
 require "dl"
 
@@ -24,12 +26,12 @@ struct CallStack
 
     def self.makecontext_range
       @@makecontext_range ||= begin
-        makecontext_start = makecontext_end = LibDL.dlsym(LibDL::RTLD_DEFAULT, "makecontext")
+        makecontext_start = makecontext_end = LibC.dlsym(LibC::RTLD_DEFAULT, "makecontext")
 
         while true
-          ret = LibDL.dladdr(makecontext_end, out info)
-          break if ret == 0 || info.sname.null?
-          break unless LibC.strcmp(info.sname, "makecontext") == 0
+          ret = LibC.dladdr(makecontext_end, out info)
+          break if ret == 0 || info.dli_sname.null?
+          break unless LibC.strcmp(info.dli_sname, "makecontext") == 0
           makecontext_end += 1
         end
 
@@ -41,7 +43,7 @@ struct CallStack
   protected def self.unwind
     callstack = [] of Void*
     backtrace_fn = ->(context : LibUnwind::Context, data : Void*) do
-      bt = data as typeof(callstack)
+      bt = data.as(typeof(callstack))
       ip = Pointer(Void).new(LibUnwind.get_ip(context))
       bt << ip
 
@@ -57,14 +59,14 @@ struct CallStack
       LibUnwind::ReasonCode::NO_REASON
     end
 
-    LibUnwind.backtrace(backtrace_fn, callstack as Void*)
+    LibUnwind.backtrace(backtrace_fn, callstack.as(Void*))
     callstack
   end
 
   struct RepeatedFrame
     getter ip : Void*, count : Int32
 
-    def initialize(@ip)
+    def initialize(@ip : Void*)
       @count = 0
     end
 
@@ -75,7 +77,7 @@ struct CallStack
 
   def self.print_backtrace
     backtrace_fn = ->(context : LibUnwind::Context, data : Void*) do
-      last_frame = data as RepeatedFrame*
+      last_frame = data.as(RepeatedFrame*)
       ip = Pointer(Void).new(LibUnwind.get_ip(context))
       if last_frame.value.ip == ip
         last_frame.value.incr
@@ -87,7 +89,7 @@ struct CallStack
     end
 
     rf = RepeatedFrame.new(Pointer(Void).null)
-    LibUnwind.backtrace(backtrace_fn, pointerof(rf) as Void*)
+    LibUnwind.backtrace(backtrace_fn, pointerof(rf).as(Void*))
     print_frame(rf)
   end
 
@@ -124,15 +126,15 @@ struct CallStack
   end
 
   protected def self.decode_frame(ip, original_ip = ip)
-    if LibDL.dladdr(ip, out info) != 0
-      offset = original_ip - info.saddr
+    if LibC.dladdr(ip, out info) != 0
+      offset = original_ip - info.dli_saddr
 
       if offset == 0
         return decode_frame(ip - 1, original_ip)
       end
 
-      unless info.sname.null?
-        {offset, info.sname}
+      unless info.dli_sname.null?
+        {offset, info.dli_sname}
       end
     end
   end
@@ -141,7 +143,6 @@ end
 class Exception
   getter message : String?
   getter cause : Exception?
-  @callstack : CallStack
 
   def initialize(message : String? = nil, cause : Exception? = nil)
     @message = message
@@ -154,9 +155,7 @@ class Exception
   end
 
   def to_s(io : IO)
-    if @message
-      io << @message
-    end
+    io << @message
   end
 
   def inspect_with_backtrace
@@ -166,7 +165,7 @@ class Exception
   end
 
   def inspect_with_backtrace(io : IO)
-    io << self << " (" << self.class << ")\n"
+    io << @message << " (" << self.class << ")\n"
     backtrace.each do |frame|
       io.puts frame
     end
@@ -208,7 +207,7 @@ end
 # Raised when the type cast failed.
 #
 # ```
-# [1, "hi"][1] as Int32 # => TypeCastError: cast to Int32 failed
+# [1, "hi"][1].as(Int32) # => TypeCastError: cast to Int32 failed
 # ```
 class TypeCastError < Exception
   def initialize(message = "Type Cast error")

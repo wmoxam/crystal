@@ -15,6 +15,16 @@ module Crystal
       after_inference_types.each do |type|
         cleanup_type type, transformer
       end
+
+      self.class_var_and_const_initializers.map! do |initializer|
+        if initializer.is_a?(ClassVarInitializer)
+          new_node = initializer.node.transform(transformer)
+          unless new_node.same?(initializer.node)
+            initializer = ClassVarInitializer.new(initializer.owner, initializer.name, new_node, initializer.meta_vars)
+          end
+        end
+        initializer
+      end
     end
 
     def cleanup_type(type, transformer)
@@ -45,15 +55,10 @@ module Crystal
   # idea on how to generate code for unreachable branches, because they have no type,
   # and for now the codegen only deals with typed nodes.
   class CleanupTransformer < Transformer
-    @program : Program
-    @transformed : Set(UInt64)
-    @def_nest_count : Int32
-    @last_is_truthy : Bool
-    @last_is_falsey : Bool
     @const_being_initialized : Path?
 
-    def initialize(@program)
-      @transformed = Set(typeof(object_id)).new
+    def initialize(@program : Program)
+      @transformed = Set(UInt64).new
       @def_nest_count = 0
       @last_is_truthy = false
       @last_is_falsey = false
@@ -169,6 +174,11 @@ module Crystal
 
       target = node.target
 
+      # Ignore class var initializers
+      if target.is_a?(ClassVar) && !target.type?
+        return node
+      end
+
       # This is the case of an instance variable initializer
       if @def_nest_count == 0 && target.is_a?(InstanceVar)
         return Nop.new
@@ -251,7 +261,7 @@ module Crystal
 
       if node.created_new_type
         node.resolved_type.types.each_value do |const|
-          (const as Const).initialized = true
+          const.as(Const).initialized = true
         end
       end
 
@@ -280,7 +290,7 @@ module Crystal
       end
 
       if named_args = node.named_args
-        named_args.map! { |named_arg| named_arg.transform(self) as NamedArgument }
+        named_args.map! { |named_arg| named_arg.transform(self).as(NamedArgument) }
       end
       # ~~~
 
@@ -728,10 +738,6 @@ module Crystal
 
       to_type = node.to.type
 
-      if to_type == @program.object
-        node.raise "useless cast"
-      end
-
       if to_type.pointer?
         if obj_type.pointer? || obj_type.reference_like?
           return node
@@ -755,6 +761,21 @@ module Crystal
         unless to_type.allocated?
           return build_raise "can't cast to #{to_type} because it was never instantiated"
         end
+      end
+
+      node
+    end
+
+    def transform(node : NilableCast)
+      node = super
+
+      obj_type = node.obj.type?
+      return node unless obj_type
+
+      to_type = node.to.type
+
+      if obj_type.no_return?
+        node.type = @program.no_return
       end
 
       node
@@ -823,7 +844,7 @@ module Crystal
     end
 
     def transform(node : StructDef)
-      type = node.type as CStructType
+      type = node.type.as(CStructType)
       if type.vars.empty?
         node.raise "empty structs are disallowed"
       end
@@ -831,7 +852,7 @@ module Crystal
     end
 
     def transform(node : UnionDef)
-      type = node.type as CUnionType
+      type = node.type.as(CUnionType)
       if type.vars.empty?
         node.raise "empty unions are disallowed"
       end

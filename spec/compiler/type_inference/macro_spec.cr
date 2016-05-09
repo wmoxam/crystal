@@ -33,7 +33,7 @@ describe "Type inference: macro" do
 
   it "errors if macro def type doesn't match found" do
     assert_error "macro def foo : Int32; 'a'; end; foo",
-      "expected 'foo' to return Int32, not Char"
+      "type must be Int32, not Char"
   end
 
   it "allows subclasses of return type for macro def" do
@@ -111,7 +111,8 @@ describe "Type inference: macro" do
       end
 
       bar
-    }, "Error in line 7: expected 'bar' to return Foo(String), not Foo(Int32)"
+    }, "type must be Foo(String), not Foo(Int32)",
+      inject_primitives: false
   end
 
   it "allows union return types for macro def" do
@@ -131,7 +132,9 @@ describe "Type inference: macro" do
       end
 
       macro def foo : Int32
-        bar_{{ "baz".id }}
+        {% begin %}
+          bar_{{ "baz".id }}
+        {% end %}
       end
 
       foo
@@ -146,7 +149,9 @@ describe "Type inference: macro" do
         end
 
         macro def foo : Int32
-          bar_{{ "baz".id }}
+          {% begin %}
+            bar_{{ "baz".id }}
+          {% end %}
         end
       end
 
@@ -158,7 +163,9 @@ describe "Type inference: macro" do
     assert_type(%(
       class Foo
         macro def foo : Int32
-          bar_{{ "baz".id }}
+          {% begin %}
+            bar_{{ "baz".id }}
+          {% end %}
         end
       end
 
@@ -642,7 +649,8 @@ describe "Type inference: macro" do
 
       foo
     ),
-      "Error in line 6: expanding macro"
+      "Error in line 6: expanding macro",
+      inject_primitives: false
   end
 
   it "show macro trace in errors (2)" do
@@ -651,7 +659,8 @@ describe "Type inference: macro" do
         Bar
       {% end %}
     ),
-      "Error in line 2: expanding macro"
+      "Error in line 2: expanding macro",
+      inject_primitives: false
   end
 
   it "errors if using macro that is defined later" do
@@ -697,5 +706,90 @@ describe "Type inference: macro" do
 
       Moo::Bar.new.method(Problem.new)
       )) { int32 }
+  end
+
+  it "doesn't error when adding macro call to constant (#2457)" do
+    assert_type(%(
+      macro foo
+      end
+
+      ITS = {} of String => String
+
+      macro coco
+        {% ITS["foo"] = yield %}
+        1
+      end
+
+      coco do
+        foo
+      end
+      )) { int32 }
+  end
+
+  it "errors if named arg matches splat argument" do
+    assert_error %(
+      macro foo(x, *y)
+      end
+
+      foo x: 1, y: 2
+      ),
+      "can't use named args with macros that have a splat argument"
+  end
+
+  it "doesn't allow named arg if there's a splat" do
+    assert_error %(
+      macro foo(*y, x)
+      end
+
+      foo 1, x: 2
+      ),
+      "can't use named args with macros that have a splat argument"
+  end
+
+  it "errors if missing one argument" do
+    assert_error %(
+      macro foo(x, y, z)
+      end
+
+      foo x: 1, y: 2
+      ),
+      "missing argument: z"
+  end
+
+  it "errors if missing two arguments" do
+    assert_error %(
+      macro foo(x, y, z)
+      end
+
+      foo y: 2
+      ),
+      "missing arguments: x, z"
+  end
+
+  it "doesn't include arguments with default values in missing arguments error" do
+    assert_error %(
+
+      macro foo(x, z, y = 1)
+      end
+
+      foo(x: 1)
+      ),
+      "missing argument: z"
+  end
+
+  it "finds generic type argument of included module" do
+    assert_type(%(
+      module Bar(T)
+        def t
+          {{ T }}
+        end
+      end
+
+      class Foo(U)
+        include Bar(U)
+      end
+
+      Foo(Int32).new.t
+      )) { int32.metaclass }
   end
 end

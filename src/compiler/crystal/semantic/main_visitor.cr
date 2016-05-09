@@ -5,15 +5,8 @@ module Crystal
     def visit_main(node)
       node.accept MainVisitor.new(self)
 
-      loop do
-        expand_macro_defs
-        fix_empty_types node
-        node = cleanup node
-
-        # The above might have produced more macro def expansions,
-        # so we need to take care of these too
-        break if @def_macros.empty?
-      end
+      fix_empty_types node
+      node = cleanup node
 
       node
     end
@@ -195,8 +188,14 @@ module Crystal
 
         attributes = check_valid_attributes node, ValidGlobalAttributes, "global variable"
         if Attribute.any?(attributes, "ThreadLocal")
-          var = @mod.global_vars[var.name]
-          var.thread_local = true
+          global_var = @mod.global_vars[var.name]
+          global_var.thread_local = true
+        end
+
+        if value = node.value
+          type_assign(var, value, node)
+          node.bind_to(var)
+          return false
         end
       end
 
@@ -330,6 +329,24 @@ module Crystal
       mod.undefined_global_variable(node, similar_name)
     end
 
+    def undefined_instance_variable(owner, node)
+      similar_name = lookup_similar_instance_variable_name(node, owner)
+      mod.undefined_instance_variable(node, owner, similar_name)
+    end
+
+    def lookup_similar_instance_variable_name(node, owner)
+      case owner
+      when NonGenericModuleType, GenericClassType, GenericModuleType
+        return nil
+      end
+
+      Levenshtein.find(node.name) do |finder|
+        owner.all_instance_vars.each_key do |name|
+          finder.test(name)
+        end
+      end
+    end
+
     def lookup_similar_global_variable_name(node)
       Levenshtein.find(node.name) do |finder|
         mod.global_vars.each_key do |name|
@@ -369,23 +386,9 @@ module Crystal
       node.obj.accept self
 
       obj_type = node.obj.type
-      unless obj_type.is_a?(InstanceVarContainer)
-        node.raise "#{obj_type} doesn't have instance vars"
-      end
-
-      ivar = obj_type.lookup_instance_var?(node.name, false)
-      unless ivar
-        node.raise "#{obj_type} doesn't have an instance var named '#{node.name}'"
-      end
-
-      unless obj_type.has_instance_var_in_initialize?(node.name)
-        ivar.nil_reason = NilReason.new(node.name, :not_in_initialize, scope: obj_type)
-        ivar.bind_to mod.nil_var
-      end
-
-      node.bind_to ivar
-
-      ivar
+      var = lookup_instance_var(node, obj_type)
+      node.bind_to var
+      var
     end
 
     def visit(node : ClassVar)
@@ -400,6 +403,11 @@ module Crystal
     def visit_class_var(node)
       var = lookup_class_var(node)
 
+      existing = @mod.class_var_and_const_being_typed.find &.same?(var)
+      if existing
+        raise_recursive_dependency node, var
+      end
+
       if first_time_accessing_meta_type_var?(var)
         var.bind_to mod.nil_var
       end
@@ -409,30 +417,12 @@ module Crystal
       var
     end
 
-    def lookup_class_var(node)
-      class_var_owner = class_var_owner(node)
-      var = class_var_owner.class_vars[node.name]?
-      unless var
-        undefined_class_variable(node, class_var_owner)
-      end
-      var
-    end
-
-    def undefined_class_variable(node, owner)
-      similar_name = lookup_similar_class_variable_name(node, owner)
-      @mod.undefined_class_variable(node, owner, similar_name)
-    end
-
-    def lookup_similar_class_variable_name(node, owner)
-      Levenshtein.find(node.name) do |finder|
-        owner.class_vars.each_key do |name|
-          finder.test(name)
-        end
-      end
-    end
-
     def lookup_instance_var(node)
-      case scope = @scope.try &.remove_typedef
+      lookup_instance_var node, @scope.try(&.remove_typedef)
+    end
+
+    def lookup_instance_var(node, scope)
+      case scope
       when Nil
         node.raise "can't use instance variables at the top level"
       when Program
@@ -444,13 +434,15 @@ module Crystal
       when .metaclass?
         node.raise "@instance_vars are not yet allowed in metaclasses: use @@class_vars instead"
       when InstanceVarContainer
-        var = scope.lookup_instance_var node.name
-        unless scope.has_instance_var_in_initialize?(node.name)
-          var.nil_reason = NilReason.new(node.name, :not_in_initialize, scope: scope)
-          var.bind_to mod.nil_var
+        var_with_owner = scope.lookup_instance_var_with_owner?(node.name)
+        unless var_with_owner
+          undefined_instance_variable(scope, node)
+        end
+        if !var_with_owner.instance_var.type?
+          undefined_instance_variable(scope, node)
         end
         check_self_closured
-        var
+        var_with_owner.instance_var
       else
         node.raise "Bug: #{scope} is not an InstanceVarContainer"
       end
@@ -531,18 +523,19 @@ module Crystal
     def type_assign(target : InstanceVar, value, node)
       # Check if this is an instance variable initializer
       unless @scope
-        # Already handled by InitializerVisitor
+        # Already handled by InstanceVarsInitializerVisitor
         return
       end
 
       value.accept self
+
       var = lookup_instance_var target
 
       target.bind_to var
       node.bind_to value
 
       begin
-        var.bind_to node
+        var.bind_to value
       rescue ex : FrozenTypeException
         target.raise ex.message
       end
@@ -581,6 +574,8 @@ module Crystal
     def type_assign(target : Global, value, node)
       attributes = check_valid_attributes target, ValidGlobalAttributes, "global variable"
 
+      value.accept self
+
       var = lookup_global_variable(target)
 
       # If we are assigning to a global inside a method, make it nilable
@@ -590,21 +585,31 @@ module Crystal
         var.bind_to mod.nil_var
       end
 
-      value.accept self
-
       var.thread_local = true if Attribute.any?(attributes, "ThreadLocal")
       target.var = var
 
       target.bind_to var
 
       node.bind_to value
-      var.bind_to node
+      var.bind_to value
     end
 
     def type_assign(target : ClassVar, value, node)
       attributes = check_valid_attributes target, ValidClassVarAttributes, "class variable"
 
+      # Outside a def is already handled by ClassVarsInitializerVisitor
+      # (@exp_nest is 1 if we are at the top level because it was incremented
+      # by one since we are inside an Assign)
+      if !@typed_def && (@exp_nest <= 1) && !inside_block?
+        var = lookup_class_var(target)
+        check_class_var_is_thread_local(target, var, attributes)
+        return
+      end
+
+      value.accept self
+
       var = lookup_class_var(target)
+      check_class_var_is_thread_local(target, var, attributes)
 
       # If we are assigning to a class variable inside a method, make it nilable
       # if this is the first time we are assigning to it, because
@@ -613,15 +618,15 @@ module Crystal
         var.bind_to mod.nil_var
       end
 
-      value.accept self
-
-      var.thread_local = true if Attribute.any?(attributes, "ThreadLocal")
-      target.var = var
-
       target.bind_to var
 
       node.bind_to value
-      var.bind_to node
+      var.bind_to value
+    end
+
+    def check_class_var_is_thread_local(target, var, attributes)
+      var.thread_local = true if Attribute.any?(attributes, "ThreadLocal")
+      target.var = var
     end
 
     def type_assign(target : Underscore, value, node)
@@ -872,14 +877,14 @@ module Crystal
         node.raise "undefined fun '#{node.name}' for #{obj_type}" unless matching_fun
 
         call.args = matching_fun.args.map_with_index do |arg, i|
-          Var.new("arg#{i}", arg.type.instance_type) as ASTNode
+          Var.new("arg#{i}", arg.type.instance_type).as(ASTNode)
         end
       else
         call.args = node.args.map_with_index do |arg, i|
           arg.accept self
           arg_type = arg.type.instance_type
           MainVisitor.check_type_allowed_as_proc_argument(node, arg_type)
-          Var.new("arg#{i}", arg_type.virtual_type) as ASTNode
+          Var.new("arg#{i}", arg_type.virtual_type).as(ASTNode)
         end
       end
 
@@ -899,6 +904,12 @@ module Crystal
       prepare_call(node)
 
       if expand_macro(node)
+        # It can happen that this call is inside an ArrayLiteral or HashLiteral,
+        # was expanded but isn't bound to the expansion because the call (together
+        # with its expantion) was cloned.
+        if (expanded = node.expanded) && !node.dependencies?
+          node.bind_to(expanded)
+        end
         return false
       end
 
@@ -983,23 +994,20 @@ module Crystal
     # set instance vars from superclasses to not-nil
     def check_super_in_initialize(node)
       if @is_initialize && node.name == "super" && !node.obj
-        superclass = scope.superclass
+        superclass_vars = scope.all_instance_vars.keys - scope.instance_vars.keys
+        superclass_vars.each do |name|
+          instance_var = scope.lookup_instance_var(name)
 
-        while superclass
-          superclass.instance_vars_in_initialize.try &.each do |name|
-            instance_var = scope.lookup_instance_var(name)
-
-            # But variables that were already used are nilable
-            if @used_ivars_in_calls_in_initialize.try &.has_key?(name)
-              instance_var.bind_to @mod.nil_var
-            else
-              meta_var = MetaVar.new(name)
-              meta_var.bind_to instance_var
-              @vars[name] = meta_var
-            end
+          # If a variable was used before this supercall, it becomes nilable
+          if @used_ivars_in_calls_in_initialize.try &.has_key?(name)
+            instance_var.nil_reason ||= NilReason.new(name, :used_before_initialized, [node] of ASTNode)
+            instance_var.bind_to @mod.nil_var
+          else
+            # Otherwise, declare it as a "local" variable
+            meta_var = MetaVar.new(name)
+            meta_var.bind_to instance_var
+            @vars[name] = meta_var
           end
-
-          superclass = superclass.superclass
         end
       end
     end
@@ -1352,12 +1360,21 @@ module Crystal
       nil
     end
 
-    def visit(node : Cast)
+    def visit(node : Cast | NilableCast)
       node.obj.accept self
 
       @in_type_args += 1
       node.to.accept self
       @in_type_args -= 1
+
+      case node.to.type?
+      when @mod.object
+        node.raise "can't cast to Object yet"
+      when @mod.reference
+        node.raise "can't cast to Reference yet"
+      when @mod.class_type
+        node.raise "can't cast to Class yet"
+      end
 
       obj_type = node.obj.type?
       if obj_type.is_a?(PointerInstanceType)
@@ -1700,8 +1717,18 @@ module Crystal
       # We also need to merge types from breaks inside while.
       if all_break_vars
         all_break_vars.each do |break_vars|
-          break_vars.each do |name, var|
-            @vars[name].bind_to(var)
+          break_vars.each do |name, break_var|
+            var = @vars[name]?
+            unless var
+              # Fix for issue #2441:
+              # it might be that a break variable is not present
+              # in the current vars after a while
+              var = new_meta_var(name)
+              var.bind_to(mod.nil_var)
+              @meta_vars[name].bind_to(mod.nil_var)
+              @vars[name] = var
+            end
+            var.bind_to(break_var)
           end
         end
       end
@@ -1805,65 +1832,63 @@ module Crystal
 
     def visit(node : Primitive)
       case node.name
-      when :binary
+      when "binary"
         visit_binary node
-      when :cast
+      when "cast"
         visit_cast node
-      when :allocate
+      when "allocate"
         visit_allocate node
-      when :pointer_malloc
+      when "pointer_malloc"
         visit_pointer_malloc node
-      when :pointer_set
+      when "pointer_set"
         visit_pointer_set node
-      when :pointer_get
+      when "pointer_get"
         visit_pointer_get node
-      when :pointer_address
+      when "pointer_address"
         node.type = @mod.uint64
-      when :pointer_new
+      when "pointer_new"
         visit_pointer_new node
-      when :pointer_realloc
+      when "pointer_realloc"
         node.type = scope
-      when :pointer_add
+      when "pointer_add"
         node.type = scope
-      when :argc
-        node.type = @mod.int32
-      when :argv
-        node.type = @mod.pointer_of(@mod.pointer_of(@mod.uint8))
-      when :struct_new
+      when "argc"
+        # Already typed
+      when "argv"
+        # Already typed
+      when "struct_new"
         node.type = scope.instance_type
-      when :struct_set
+      when "struct_set"
         visit_struct_or_union_set node
-      when :struct_get
+      when "struct_get"
         visit_struct_get node
-      when :union_new
+      when "union_new"
         node.type = scope.instance_type
-      when :union_set
+      when "union_set"
         visit_struct_or_union_set node
-      when :union_get
+      when "union_get"
         visit_union_get node
-      when :external_var_set
+      when "external_var_set"
         # Nothing to do
-      when :external_var_get
+      when "external_var_get"
         # Nothing to do
-      when :object_id
+      when "object_id"
         node.type = mod.uint64
-      when :object_crystal_type_id
+      when "object_crystal_type_id"
         node.type = mod.int32
-      when :symbol_hash
-        node.type = mod.int32
-      when :symbol_to_s
+      when "symbol_to_s"
         node.type = mod.string
-      when :class
+      when "class"
         node.type = scope.metaclass
-      when :fun_call
+      when "fun_call"
         # Nothing to do
-      when :pointer_diff
+      when "pointer_diff"
         node.type = mod.int64
-      when :class_name
+      when "class_name"
         node.type = mod.string
-      when :enum_value
+      when "enum_value"
         # Nothing to do
-      when :enum_new
+      when "enum_new"
         # Nothing to do
       else
         node.raise "Bug: unhandled primitive in type inference: #{node.name}"
@@ -1930,7 +1955,7 @@ module Crystal
     end
 
     def visit_pointer_set(node)
-      scope = scope().remove_typedef as PointerInstanceType
+      scope = scope().remove_typedef.as(PointerInstanceType)
 
       value = @vars["value"]
 
@@ -1939,7 +1964,7 @@ module Crystal
     end
 
     def visit_pointer_get(node)
-      scope = scope().remove_typedef as PointerInstanceType
+      scope = scope().remove_typedef.as(PointerInstanceType)
 
       node.bind_to scope.var
     end
@@ -1953,7 +1978,7 @@ module Crystal
     end
 
     def visit_struct_or_union_set(node)
-      scope = @scope as CStructOrUnionType
+      scope = @scope.as(CStructOrUnionType)
 
       field_name = call.not_nil!.name[0...-1]
       expected_type = scope.vars[field_name].type
@@ -1995,12 +2020,12 @@ module Crystal
     end
 
     def visit_struct_get(node)
-      scope = @scope as CStructType
+      scope = @scope.as(CStructType)
       node.bind_to scope.vars[untyped_def.name]
     end
 
     def visit_union_get(node)
-      scope = @scope as CUnionType
+      scope = @scope.as(CUnionType)
       node.bind_to scope.vars[untyped_def.name]
     end
 
@@ -2221,6 +2246,7 @@ module Crystal
         rescue_vars.each do |name, var|
           after_var = (after_vars[name] ||= new_meta_var(name))
           if var.nil_if_read || !body_vars[name]?
+            after_var.bind_to(mod.nil_var)
             after_var.nil_if_read = true
           end
           after_var.bind_to(var)
@@ -2245,9 +2271,9 @@ module Crystal
     def visit(node : TupleIndexer)
       scope = @scope
       if scope.is_a?(TupleInstanceType)
-        node.type = scope.tuple_types[node.index] as Type
+        node.type = scope.tuple_types[node.index].as(Type)
       elsif scope
-        node.type = ((scope.instance_type as TupleInstanceType).tuple_types[node.index] as Type).metaclass
+        node.type = (scope.instance_type.as(TupleInstanceType).tuple_types[node.index].as(Type)).metaclass
       end
       false
     end
@@ -2386,8 +2412,8 @@ module Crystal
           type_name = type.name.split "::"
 
           path = Path.global(type_name).at(node.location)
-          type_of_keys = TypeOf.new(node.entries.map { |x| x.key as ASTNode }).at(node.location)
-          type_of_values = TypeOf.new(node.entries.map { |x| x.value as ASTNode }).at(node.location)
+          type_of_keys = TypeOf.new(node.entries.map { |x| x.key.as(ASTNode) }).at(node.location)
+          type_of_values = TypeOf.new(node.entries.map { |x| x.value.as(ASTNode) }).at(node.location)
           generic = Generic.new(path, [type_of_keys, type_of_values] of ASTNode).at(node.location)
 
           node.name = generic
@@ -2431,6 +2457,11 @@ module Crystal
     end
 
     def visit(node : Case)
+      expand(node)
+      false
+    end
+
+    def visit(node : MultiAssign)
       expand(node)
       false
     end
@@ -2544,7 +2575,7 @@ module Crystal
     end
 
     def lookup_var_or_instance_var(var : InstanceVar)
-      scope = @scope as InstanceVarContainer
+      scope = @scope.as(InstanceVarContainer)
       scope.lookup_instance_var(var.name)
     end
 
@@ -2640,7 +2671,7 @@ module Crystal
       @untyped_def || @block_context
     end
 
-    def visit(node : Require | When | Unless | MultiAssign | Until | MacroLiteral)
+    def visit(node : Require | When | Unless | Until | MacroLiteral)
       raise "Bug: #{node.class_desc} node '#{node}' (#{node.location}) should have been eliminated in normalize"
     end
   end

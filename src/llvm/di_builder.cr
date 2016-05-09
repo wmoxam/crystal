@@ -1,6 +1,4 @@
 struct LLVM::DIBuilder
-  @unwrap : LibLLVMExt::DIBuilder
-
   def initialize(llvm_module)
     @unwrap = LibLLVMExt.create_di_builder(llvm_module)
   end
@@ -75,7 +73,7 @@ struct LLVM::DIBuilder
   end
 
   def temporary_md_node(context)
-    LibLLVMExt.temporary_md_node(context, nil, 0) as LibLLVMExt::Metadata
+    LibLLVMExt.temporary_md_node(context, nil, 0).as(LibLLVMExt::Metadata)
   end
 
   def replace_all_uses(from, to)
