@@ -450,7 +450,7 @@ module Crystal
       end
 
       def bc_name_new
-        "#{@output_dir}/#{@name}.new.bc"
+        "#{@output_dir}/#{@name}-#{Process.pid}.new.bc"
       end
 
       def ll_name
