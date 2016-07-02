@@ -269,19 +269,22 @@ describe "Type inference: const" do
       "recursive dependency of constant B: B -> A -> B"
   end
 
-  it "errors if recursive constant definition with class var" do
-    assert_error %(
-      def foo(x)
-      end
-
-      foo Foo::B
+  it "can use constant defined later (#2906)" do
+    assert_type(%(
+      FOO = Foo.new
 
       class Foo
-        @@a : Int32?
-        B = @@a
-        @@a = 1 + (B ? 0 : 2)
+        A = Bar.new
+
+        def initialize
+          A
+        end
       end
-      ),
-      "recursive dependency of class var Foo::@@a: Foo::@@a -> Foo::B -> Foo::@@a"
+
+      class Bar
+      end
+
+      FOO
+      )) { types["Foo"] }
   end
 end

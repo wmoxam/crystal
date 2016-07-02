@@ -1,3 +1,36 @@
+## 0.18.6 (28-06-2016)
+
+* `T?` is now parsed as `Union(T, Nil)` outside the type grammar
+* Added `String#sub` overloads for replacing an index or range with a char or string
+* [Several bugs fixes](https://github.com/crystal-lang/crystal/issues?q=milestone%3A0.18.6+is%3Aclosed)
+
+## 0.18.5 (27-06-2016)
+
+* Added `OpenSSL::SSL::Socket#alpn_protocol`
+* Added `IO#copy(src, desc, limit)` (thanks @jreinert)
+* Added `TypeNode#instance` macro method
+* [Several bugs fixes](https://github.com/crystal-lang/crystal/issues?q=milestone%3A0.18.5+is%3Aclosed)
+
+## 0.18.4 (21-06-2016)
+
+* Fixed [#2887](https://github.com/crystal-lang/crystal/issues/2887)
+* Fix broken specs
+
+## 0.18.3 (21-06-2016)
+
+* `TypeNode`: added `<`, `<=`, `>` and `>=` macro methods
+* [Several bugs fixes](https://github.com/crystal-lang/crystal/issues?q=milestone%3A0.18.3+is%3Aclosed)
+
+## 0.18.2 (16-06-2016)
+
+* Fixed building Crystal from the source tarball
+
+## 0.18.1 (16-06-2016)
+
+* Spec: passing `--profile` shows the slowest 10 specs (thanks @mperham)
+* Added `StringLiteral#>` and `StringLiteral#<` in macros
+* [Several bugs fixes](https://github.com/crystal-lang/crystal/issues?q=milestone%3A0.18.1+is%3Aclosed)
+
 ## 0.18.0 (14-06-2016)
 
 * **(breaking change)** `IniFile` was renamed to `INI`, and its method `load` renamed to `parse`
@@ -289,7 +322,7 @@
 ## 0.10.1 (2016-01-08)
 
 * Added `Int#popcount` (thanks @rmosolgo)
-* Added `@[Naked]` attribute for ommiting a method's prelude
+* Added `@[Naked]` attribute for omitting a method's prelude
 * Check that abstract methods are implemented by subtypes
 * Some bug fixes
 
@@ -607,7 +640,7 @@
 * Correctly support the X86_64 and X86 ABIs. Now bindings to C APIs that pass and return structs works perfectly fine.
 * Added `crystal init` to quickly create a skeleton library or application (thanks @waterlink)
 * Added `--emit` flag to the compiler. Now you can easily see the generated LLVM IR, LLVM bitcode, assembly and object files.
-* Added `--no-color` flag to supress color output, useful for editor tools.
+* Added `--no-color` flag to suppress color output, useful for editor tools.
 * Added macro vars: `%var` and `%var{x, y}` create uniqely named variables inside macros.
 * Added [typed splats](https://github.com/crystal-lang/crystal/issues/291).
 * Added `Iterator` and many methods that return iterators, like `Array#each`, `Hash#each`, `Int#times`, `Int#step`, `String#each_char`, etc.
@@ -945,7 +978,7 @@
 * Added a `Base64` module (thanks @kostya)
 * Allow default arguments in macros
 * Allow invoking `new` on a function type. For example: `alias F = Int32 -> Int32; f = F.new { |x| x + 1 }; f.call(2) #=> 3`.
-* Allow ommiting function argument types when invoking C functions that accept functions as arguments.
+* Allow omitting function argument types when invoking C functions that accept functions as arguments.
 * Renamed `@name` to `@class_name` inside macros. `@name` will be deprecated in the next version.
 * Added IO#read_fully
 * Macro hooks: `inherited`, `included` and `extended`
@@ -1004,7 +1037,7 @@
 
     Invoking `id` on any other kind of node has no effect on the pasted result.
 * Allow escaping curly braces inside macros with `\{`. This allows defining macros that, when expanded, can contain other macro expressions.
-* Added a special comment-like pragma to change the lexer's filename, line number and colum number.
+* Added a special comment-like pragma to change the lexer's filename, line number and column number.
 
     ```ruby
     # foo.cr

@@ -20,8 +20,9 @@ class Fiber
   protected property stack_bottom : Void*
   protected property next_fiber : Fiber?
   protected property prev_fiber : Fiber?
+  property name : String?
 
-  def initialize(&@proc : ->)
+  def initialize(@name : String? = nil, &@proc : ->)
     @stack = Fiber.allocate_stack
     @stack_bottom = @stack + STACK_SIZE
     fiber_main = ->(f : Fiber) { f.run }
@@ -64,6 +65,7 @@ class Fiber
     @stack = Pointer(Void).null
     @stack_top = _fiber_get_stack_top
     @stack_bottom = LibGC.stackbottom
+    @name = "main"
 
     @@first_fiber = @@last_fiber = self
   end
@@ -98,7 +100,7 @@ class Fiber
       io.puts "Unhandled exception:"
       ex.inspect_with_backtrace io
     end
-    LibC.write(2, pointerof(msg).as(Void*), msg.bytesize)
+    LibC.write(2, msg, msg.bytesize)
   ensure
     @@stack_pool << @stack
 
@@ -160,7 +162,7 @@ class Fiber
   end
 
   def resume
-    current, @@current = @@current, self
+    current, Thread.current.current_fiber = Thread.current.current_fiber, self
     LibGC.stackbottom = @stack_bottom
     Fiber.switch_stacks(pointerof(current.@stack_top), pointerof(@stack_top))
   end
@@ -183,6 +185,19 @@ class Fiber
     Fiber.current.yield
   end
 
+  def to_s(io)
+    io << "#<" << self.class.name << ":0x"
+    object_id.to_s(16, io)
+    if name = @name
+      io << ": " << name
+    end
+    io << ">"
+  end
+
+  def inspect(io)
+    to_s(io)
+  end
+
   protected def push_gc_roots
     # Push the used section of the stack
     LibGC.push_all_eager @stack_top, @stack_bottom
@@ -194,12 +209,10 @@ class Fiber
     @@root
   end
 
-  # TODO: Boehm GC doesn't scan thread local vars, so we can't use it yet
-  # @[ThreadLocal]
-  @@current : Fiber = root
+  Thread.current.current_fiber = root
 
   def self.current : self
-    @@current
+    Thread.current.current_fiber
   end
 
   @@prev_push_other_roots = LibGC.get_push_other_roots
@@ -210,7 +223,7 @@ class Fiber
 
     fiber = @@first_fiber
     while fiber
-      fiber.push_gc_roots unless fiber == @@current
+      fiber.push_gc_roots unless fiber == Thread.current.current_fiber
       fiber = fiber.next_fiber
     end
   end

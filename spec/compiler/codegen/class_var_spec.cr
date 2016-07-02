@@ -497,4 +497,50 @@ describe "Codegen: class var" do
       Bar.var
       )).to_i.should eq(2)
   end
+
+  it "declares var as uninitialized and initializes it unsafely" do
+    run(%(
+      class Foo
+        @@x = uninitialized Int32
+        @@x = Foo.bar
+
+        def self.bar
+          if 1 == 2
+            @@x
+          else
+            10
+          end
+        end
+
+        def self.x
+          @@x
+        end
+      end
+
+      Foo.x
+      )).to_i.should eq(10)
+  end
+
+  it "doesn't crash with pointerof from another module" do
+    run(%(
+      require "prelude"
+
+      class Foo
+        @@x : Int32?
+        @@x = 1
+
+        def self.x
+          pointerof(@@x).value
+        end
+      end
+
+      class Bar
+        def self.bar
+          Foo.x
+        end
+      end
+
+      Bar.bar
+      )).to_i.should eq(1)
+  end
 end

@@ -297,7 +297,7 @@ class HTTP::Client
     #
     # ```
     # client = HTTP::Client.new("www.example.com")
-    # response = client.{{method.id}}("/", headers: HTTP::Headers{"User-agent": "AwesomeApp"}, body: "Hello!")
+    # response = client.{{method.id}}("/", headers: HTTP::Headers{"User-agent" => "AwesomeApp"}, body: "Hello!")
     # response.body #=> "..."
     # ```
     def {{method.id}}(path, headers : HTTP::Headers? = nil, body : String? = nil) : HTTP::Client::Response
@@ -309,7 +309,7 @@ class HTTP::Client
     #
     # ```
     # client = HTTP::Client.new("www.example.com")
-    # client.{{method.id}}("/", headers: HTTP::Headers{"User-agent": "AwesomeApp"}, body: "Hello!") do |response|
+    # client.{{method.id}}("/", headers: HTTP::Headers{"User-agent" => "AwesomeApp"}, body: "Hello!") do |response|
     #   response.body_io.gets #=> "..."
     # end
     # ```
@@ -323,7 +323,7 @@ class HTTP::Client
     # The response will have its body as a `String`, accessed via `HTTP::Client::Response#body`.
     #
     # ```
-    # response = HTTP::Client.{{method.id}}("/", headers: HTTP::Headers{"User-agent": "AwesomeApp"}, body: "Hello!")
+    # response = HTTP::Client.{{method.id}}("/", headers: HTTP::Headers{"User-agent" => "AwesomeApp"}, body: "Hello!")
     # response.body #=> "..."
     # ```
     def self.{{method.id}}(url : String | URI, headers : HTTP::Headers? = nil, body : String? = nil, tls = nil) : HTTP::Client::Response
@@ -334,7 +334,7 @@ class HTTP::Client
     # The response will have its body as an `IO` accessed via `HTTP::Client::Response#body_io`.
     #
     # ```
-    # HTTP::Client.{{method.id}}("/", headers: HTTP::Headers{"User-agent": "AwesomeApp"}, body: "Hello!") do |response|
+    # HTTP::Client.{{method.id}}("/", headers: HTTP::Headers{"User-agent" => "AwesomeApp"}, body: "Hello!") do |response|
     #   response.body_io.gets #=> "..."
     # end
     # ```
@@ -358,6 +358,24 @@ class HTTP::Client
     exec request
   end
 
+  # Executes a POST with form data and yields the response to the block.
+  # The response will have its body as an `IO` accessed via `HTTP::Client::Response#body_io`.
+  # The "Content-type" header is set to "application/x-www-form-urlencoded".
+  #
+  # ```
+  # client = HTTP::Client.new "www.example.com"
+  # client.post_form("/", "foo=bar") do |response|
+  #   response.body_io.gets
+  # end
+  # ```
+  def post_form(path, form : String, headers : HTTP::Headers? = nil)
+    request = new_request("POST", path, headers, form)
+    request.headers["Content-type"] = "application/x-www-form-urlencoded"
+    exec(request) do |response|
+      yield response
+    end
+  end
+
   # Executes a POST with form data. The "Content-type" header is set
   # to "application/x-www-form-urlencoded".
   #
@@ -366,13 +384,25 @@ class HTTP::Client
   # response = client.post_form "/", {"foo": "bar"}
   # ```
   def post_form(path, form : Hash, headers : HTTP::Headers? = nil) : HTTP::Client::Response
-    body = HTTP::Params.build do |form_builder|
-      form.each do |key, value|
-        form_builder.add key, value
-      end
-    end
-
+    body = HTTP::Params.from_hash(form)
     post_form path, body, headers
+  end
+
+  # Executes a POST with form data and yields the response to the block.
+  # The response will have its body as an `IO` accessed via `HTTP::Client::Response#body_io`.
+  # The "Content-type" header is set to "application/x-www-form-urlencoded".
+  #
+  # ```
+  # client = HTTP::Client.new "www.example.com"
+  # client.post_form("/", {"foo": "bar"}) do |response|
+  #   response.body_io.gets
+  # end
+  # ```
+  def post_form(path, form : Hash, headers : HTTP::Headers? = nil)
+    body = HTTP::Params.from_hash(form)
+    post_form(path, body, headers) do |response|
+      yield response
+    end
   end
 
   # Executes a POST with form data. The "Content-type" header is set
@@ -384,6 +414,23 @@ class HTTP::Client
   def self.post_form(url, form : String | Hash, headers : HTTP::Headers? = nil, tls = nil) : HTTP::Client::Response
     exec(url, tls) do |client, path|
       client.post_form(path, form, headers)
+    end
+  end
+
+  # Executes a POST with form data and yields the response to the block.
+  # The response will have its body as an `IO` accessed via `HTTP::Client::Response#body_io`.
+  # The "Content-type" header is set to "application/x-www-form-urlencoded".
+  #
+  # ```
+  # HTTP::Client.post_form("http://www.example.com", "foo=bar") do |response|
+  #   response.body_io.gets
+  # end
+  # ```
+  def self.post_form(url, form : String | Hash, headers : HTTP::Headers? = nil, tls = nil)
+    exec(url, tls) do |client, path|
+      client.post_form(path, form, headers) do |response|
+        yield response
+      end
     end
   end
 
