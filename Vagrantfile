@@ -35,6 +35,18 @@ Vagrant.configure("2") do |config|
     )
   end
 
+  config.vm.define "openbsd" do |c|
+    c.ssh.shell = "ksh"
+    c.vm.box = "kaorimatz/openbsd-5.9-amd64"
+
+    c.vm.network "private_network", type: "dhcp"
+    c.vm.synced_folder ".", "/vagrant", type: "nfs"
+
+    c.vm.provision :shell, inline: %(
+      pkg_add git llvm pcre boehm-gc libevent
+    )
+  end
+
   config.vm.provider "virtualbox" do |vb|
     vb.memory = 4096
     vb.cpus = 2

@@ -9,7 +9,7 @@ lib LibC
       @[ThreadLocal]
       $errno : Int
     {% end %}
-  {% elsif flag?(:darwin) || flag?(:freebsd) %}
+  {% elsif flag?(:darwin) || flag?(:freebsd) || flag?(:openbsd) %}
     fun __error : Int*
   {% end %}
 end
@@ -135,7 +135,7 @@ class Errno < Exception
       {% else %}
         LibC.errno
       {% end %}
-    {% elsif flag?(:darwin) || flag?(:freebsd) %}
+    {% elsif flag?(:darwin) || flag?(:freebsd) || flag?(:openbsd) %}
       LibC.__error.value
     {% end %}
   end
@@ -148,7 +148,7 @@ class Errno < Exception
       {% else %}
         LibC.errno = value
       {% end %}
-    {% elsif flag?(:darwin) || flag?(:freebsd) %}
+    {% elsif flag?(:darwin) || flag?(:freebsd) || flag?(:openbsd) %}
       LibC.__error.value = value
     {% end %}
   end
