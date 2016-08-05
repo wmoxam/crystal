@@ -1354,7 +1354,7 @@ describe "Code gen: macro" do
       class Bar < Foo
       end
 
-      (Bar.new as Foo).method
+      Bar.new.as(Foo).method
       )).to_string.should eq("Bar")
   end
 
@@ -1394,5 +1394,36 @@ describe "Code gen: macro" do
         "hello \#{ [{ %a, %a }, %a] }"
       {% end %}
       )).to_string.should eq(%(hello [{"world", "world"}, "world"]))
+  end
+
+  it "retains original yield expression (#2923)" do
+    run(%(
+      macro foo
+        def bar(baz)
+          {{yield}}
+        end
+      end
+
+      foo do
+        baz
+      end
+
+      bar("hi")
+      )).to_string.should eq("hi")
+  end
+
+  it "surrounds {{yield}} with begin/end" do
+    run(%(
+      macro foo
+        a = {{yield}}
+      end
+
+      a = 0
+      foo do
+        1
+        2
+      end
+      a
+      )).to_i.should eq(2)
   end
 end

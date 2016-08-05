@@ -30,6 +30,14 @@ require "./semantic_visitor"
 # subclasses or not and we can tag it as "virtual" (having subclasses), but that concept
 # might disappear in the future and we'll make consider everything as "maybe virtual".
 class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
+  ValidDefAttributes       = %w(AlwaysInline Naked NoInline Raises ReturnsTwice Primitive)
+  ValidFunDefAttributes    = %w(AlwaysInline Naked NoInline Raises ReturnsTwice CallConvention)
+  ValidStructDefAttributes = %w(Packed)
+  ValidEnumDefAttributes   = %w(Flags)
+
+  # These are `new` methods (expanded) that was created from `initialize` methods (original)
+  getter new_expansions = [] of {original: Def, expanded: Def}
+
   @last_doc : String?
 
   def visit(node : ClassDef)
@@ -38,7 +46,7 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
     node_superclass = node.superclass
 
     if node_superclass
-      superclass = lookup_path_type(node_superclass)
+      superclass = lookup_type_name(node_superclass)
     else
       superclass = node.struct? ? program.struct : program.reference
     end
@@ -53,7 +61,7 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
       end
     end
 
-    scope, name = process_type_name(node.name)
+    scope, name = lookup_type_def_name(node.name)
 
     type = scope.types[name]?
 
@@ -136,10 +144,7 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
     attach_doc type, node
 
     pushing_type(type) do
-      if created_new_type
-        run_hooks(superclass.metaclass, type, :inherited, node)
-      end
-
+      run_hooks(superclass.metaclass, type, :inherited, node) if created_new_type
       node.body.accept self
     end
 
@@ -154,7 +159,7 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
   def visit(node : ModuleDef)
     check_outside_exp node, "declare module"
 
-    scope, name = process_type_name(node.name)
+    scope, name = lookup_type_def_name(node.name)
 
     type = scope.types[name]?
     if type
@@ -237,7 +242,7 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
                     end
                     current_type.metaclass
                   else
-                    type = lookup_path_type(receiver).metaclass
+                    type = lookup_type(receiver).metaclass
                     node.raise "can't define 'def' for lib" if type.is_a?(LibType)
                     type
                   end
@@ -272,7 +277,7 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
         target_type.metaclass.add_def(new_method)
 
         # And we register it to later complete it
-        @program.new_expansions << Program::NewExpansion.new(node, new_method)
+        new_expansions << {original: node, expanded: new_method}
       end
 
       run_hooks target_type.metaclass, target_type, :method_added, node, Call.new(nil, "method_added", [node] of ASTNode).at(node.location)
@@ -385,7 +390,7 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
     attributes = check_valid_attributes node, ValidEnumDefAttributes, "enum"
     attributes_doc = attributes_doc()
 
-    scope, name = process_type_name(node.name)
+    scope, name = lookup_type_def_name(node.name)
 
     enum_type = scope.types[name]?
     if enum_type
@@ -439,7 +444,6 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
       end
 
       scope.types[name] = enum_type
-      node.created_new_type = true
     end
 
     false
@@ -456,13 +460,13 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
   def visit_enum_member(node, member, counter, all_value, **options)
     case member
     when MacroIf
-      expanded = expand_inline_macro(member, mode: MacroExpansionMode::Enum)
+      expanded = expand_inline_macro(member, mode: Program::MacroExpansionMode::Enum)
       visit_enum_member(node, expanded, counter, all_value, **options)
     when MacroExpression
-      expanded = expand_inline_macro(member, mode: MacroExpansionMode::Enum)
+      expanded = expand_inline_macro(member, mode: Program::MacroExpansionMode::Enum)
       visit_enum_member(node, expanded, counter, all_value, **options)
     when MacroFor
-      expanded = expand_inline_macro(member, mode: MacroExpansionMode::Enum)
+      expanded = expand_inline_macro(member, mode: Program::MacroExpansionMode::Enum)
       visit_enum_member(node, expanded, counter, all_value, **options)
     when Expressions
       visit_enum_members(node, member.expressions, counter, all_value, **options)
@@ -675,7 +679,7 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
 
   def include_in(current_type, node, kind)
     node_name = node.name
-    type = lookup_path_type(node_name)
+    type = lookup_type_name(node_name)
 
     unless type.module?
       node_name.raise "#{type} is not a module, it's a #{type.type_desc}"
@@ -737,15 +741,15 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
       hooks.each do |hook|
         next if hook.kind != kind
 
-        expanded = expand_macro(hook.macro, node) do
+        expansion = expand_macro(hook.macro, node) do
           if call
-            @program.expand_macro hook.macro, call, current_type.instance_type, @type_lookup
+            @program.expand_macro hook.macro, call, current_type.instance_type
           else
-            @program.expand_macro hook.macro.body, current_type.instance_type, @type_lookup
+            @program.expand_macro hook.macro.body, current_type.instance_type
           end
         end
 
-        node.add_runtime_initializer(expanded)
+        node.add_hook_expansion(expansion)
       end
     end
 
@@ -821,5 +825,49 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
       when "Raises"       then node.raises = true
       end
     end
+  end
+
+  def lookup_type_def_name(path)
+    if path.names.size == 1 && !path.global?
+      scope = current_type
+      name = path.names.first
+    else
+      path = path.clone
+      name = path.names.pop
+      scope = lookup_type_def_name_creating_modules path
+    end
+    {scope, name}
+  end
+
+  def lookup_type_name(node)
+    node = node.name if node.is_a?(Generic)
+    lookup_type(node)
+  end
+
+  def lookup_type_def_name_creating_modules(path : Path)
+    base_type = path.global? ? program : current_type
+    target_type = base_type.lookup_path(path).as?(Type).try &.remove_alias_if_simple
+
+    unless target_type
+      next_type = base_type
+      path.names.each do |name|
+        next_type = base_type.lookup_path_item(name, lookup_in_namespace: false)
+        if next_type
+          if next_type.is_a?(ASTNode)
+            path.raise "execpted #{name} to be a type"
+          end
+        else
+          next_type = NonGenericModuleType.new(@program, base_type, name)
+          if (location = path.location)
+            next_type.locations << location
+          end
+          base_type.types[name] = next_type
+        end
+        base_type = next_type
+      end
+      target_type = next_type
+    end
+
+    target_type
   end
 end

@@ -211,7 +211,7 @@ describe "Semantic: struct" do
         end
       end
 
-      Bar.new as Foo
+      Bar.new.as(Foo)
       )) { types["Foo"].virtual_type! }
   end
 
@@ -228,5 +228,17 @@ describe "Semantic: struct" do
       end
       ),
       "recursive struct Foo detected: `@moo : Moo` -> `Moo` -> `Foo`"
+  end
+
+  it "detects recursive struct through inheritance (#3071)" do
+    assert_error %(
+      abstract struct X
+      end
+
+      struct A < X
+        @value = uninitialized X
+      end
+      ),
+      "recursive struct A detected: `@value : X` -> `X` -> `A`"
   end
 end

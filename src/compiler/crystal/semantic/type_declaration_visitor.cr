@@ -22,6 +22,8 @@ require "./type_guess_visitor"
 # declared all types so now we can search them and always find
 # them, not needing any kind of forward referencing.
 class Crystal::TypeDeclarationVisitor < Crystal::SemanticVisitor
+  ValidExternalVarAttributes = %w(ThreadLocal)
+
   alias TypeDeclarationWithLocation = TypeDeclarationProcessor::TypeDeclarationWithLocation
 
   getter globals
@@ -38,6 +40,10 @@ class Crystal::TypeDeclarationVisitor < Crystal::SemanticVisitor
     # The type of class variables. The last one wins.
     # This is type => variables.
     @class_vars = {} of ClassVarContainer => Hash(String, TypeDeclarationWithLocation)
+
+    # A hash of all defined funs, so we can detect when
+    # a fun is redefined with a different signautre
+    @externals = {} of String => External
   end
 
   def visit(node : Alias)
@@ -129,13 +135,10 @@ class Crystal::TypeDeclarationVisitor < Crystal::SemanticVisitor
 
     external.set_type(return_type)
 
-    begin
-      old_external = current_type.add_def external
-    rescue ex : Crystal::Exception
-      node.raise ex.message
-    end
+    old_external = add_external external
+    old_external.dead = true if old_external
 
-    old_external.dead = true if old_external.is_a?(External)
+    current_type.add_def(external)
 
     if current_type.is_a?(Program)
       key = DefInstanceKey.new external.object_id, external.args.map(&.type), nil, nil
@@ -167,6 +170,19 @@ class Crystal::TypeDeclarationVisitor < Crystal::SemanticVisitor
     false
   end
 
+  def add_external(external : External)
+    existing = @externals[external.real_name]?
+    if existing
+      if existing.compatible_with?(external)
+        return existing
+      else
+        external.raise "fun redefinition with different signature (was `#{existing}` at #{existing.location})"
+      end
+    end
+    @externals[external.real_name] = external
+    nil
+  end
+
   def declare_c_struct_or_union_field(node)
     type = current_type.as(NonGenericClassType)
 
@@ -189,7 +205,7 @@ class Crystal::TypeDeclarationVisitor < Crystal::SemanticVisitor
 
   def declare_c_struct_or_union_field(type, field_name, var)
     type.instance_vars[var.name] = var
-    type.add_def Def.new("#{field_name}=", [Arg.new("value")], Primitive.new(type.extern_union? ? :union_set : :struct_set))
+    type.add_def Def.new("#{field_name}=", [Arg.new("value")], Primitive.new("struct_or_union_set"))
     type.add_def Def.new(field_name, body: InstanceVar.new(var.name))
   end
 
@@ -249,10 +265,6 @@ class Crystal::TypeDeclarationVisitor < Crystal::SemanticVisitor
     var_type = lookup_type(node.declared_type)
     var_type = check_declare_var_type(node, var_type, "a global variable")
     @globals[var.name] = TypeDeclarationWithLocation.new(var_type.virtual_type, node.location.not_nil!, uninitialized)
-  end
-
-  def visit(node : Call)
-    !expand_macro(node, raise_on_missing_const: false)
   end
 
   def visit(node : UninitializedVar)

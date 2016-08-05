@@ -2,7 +2,7 @@ require "../semantic/ast"
 require "./macros"
 
 module Crystal
-  class MacroExpander::MacroVisitor
+  class MacroInterpreter
     def interpret_top_level_call(node)
       case node.name
       when "debug"
@@ -168,7 +168,7 @@ module Crystal
         run_args << @last.to_macro_id
       end
 
-      success, result = @expander.run(filename, run_args)
+      success, result = @program.macro_run(filename, run_args)
       if success
         @last = MacroId.new(result)
       else
@@ -183,7 +183,14 @@ module Crystal
     end
 
     def truthy?
-      true
+      case self
+      when NilLiteral, Nop
+        false
+      when BoolLiteral
+        self.value
+      else
+        true
+      end
     end
 
     def interpret(method, args, block, interpreter)
@@ -278,29 +285,15 @@ module Crystal
     end
   end
 
-  class Nop
-    def truthy?
-      false
-    end
-  end
-
   class NilLiteral
     def to_macro_id
       "nil"
-    end
-
-    def truthy?
-      false
     end
   end
 
   class BoolLiteral
     def to_macro_id
       @value ? "true" : "false"
-    end
-
-    def truthy?
-      @value
     end
   end
 

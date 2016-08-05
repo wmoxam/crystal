@@ -5,7 +5,7 @@ module Crystal
     def visit_main(node, visitor = MainVisitor.new(self))
       node.accept visitor
 
-      fix_empty_types node
+      node.accept FixMissingTypes.new(self)
       node = cleanup node
 
       node
@@ -25,13 +25,16 @@ module Crystal
   #
   # Call resolution logic is in `Call#recalculate`, where method lookup is done.
   class MainVisitor < SemanticVisitor
+    ValidGlobalAttributes   = %w(ThreadLocal)
+    ValidClassVarAttributes = %w(ThreadLocal)
+
     property! scope
     getter! typed_def
     property! untyped_def : Def
     setter untyped_def
     getter block : Block?
     property call : Call?
-    property type_lookup
+    property path_lookup
     property fun_literal_context : Def | Program | Nil
     property parent : MainVisitor?
     property block_nest = 0
@@ -125,7 +128,7 @@ module Crystal
     end
 
     def visit(node : Path)
-      type = resolve_ident(node)
+      type = (@path_lookup || @scope || @current_type).lookup_type_var(node, free_vars: @free_vars)
       case type
       when Const
         if !type.value.type? && !type.visited?
@@ -134,7 +137,7 @@ module Crystal
           meta_vars = MetaVars.new
           const_def = Def.new("const", [] of Arg)
           type_visitor = MainVisitor.new(@program, meta_vars, const_def)
-          type_visitor.current_type = type.container
+          type_visitor.current_type = type.namespace
           type.value.accept type_visitor
 
           type.vars = const_def.vars
@@ -918,7 +921,7 @@ module Crystal
       block_visitor.scope = block_scope
 
       block_visitor.block = node
-      block_visitor.type_lookup = type_lookup || current_type
+      block_visitor.path_lookup = path_lookup || current_type
       block_visitor.block_nest = @block_nest
 
       node.body.accept block_visitor
@@ -1004,7 +1007,7 @@ module Crystal
       block_visitor.untyped_def = node.def
       block_visitor.call = @call
       block_visitor.scope = @scope
-      block_visitor.type_lookup = type_lookup
+      block_visitor.path_lookup = path_lookup
       block_visitor.fun_literal_context = @fun_literal_context || @typed_def || @program
       block_visitor.block_nest = @block_nest + 1
       block_visitor.parent = self
@@ -1055,7 +1058,8 @@ module Crystal
       end
 
       node.call = call
-      node.bind_to call
+      call.add_observer node
+      node.update
 
       false
     end
@@ -1103,10 +1107,10 @@ module Crystal
         named_args.try &.each &.value.accept self
       end
 
-      obj.try &.add_input_observer(node)
-      args.each &.add_input_observer(node)
-      block_arg.try &.add_input_observer node
-      named_args.try &.each &.value.add_input_observer(node)
+      obj.try &.set_enclosing_call(node)
+      args.each &.set_enclosing_call(node)
+      block_arg.try &.set_enclosing_call node
+      named_args.try &.each &.value.set_enclosing_call(node)
 
       check_super_in_initialize node
 
@@ -1985,7 +1989,6 @@ module Crystal
         bind_vars @vars, block.after_vars, block.args
       elsif target_while = @while_stack.last?
         node.target = target_while
-        target_while.has_breaks = true
 
         break_vars = (target_while.break_vars ||= [] of MetaVars)
         break_vars.push @vars.dup
@@ -2051,9 +2054,7 @@ module Crystal
         # Already typed
       when "argv"
         # Already typed
-      when "struct_set"
-        visit_struct_or_union_set node
-      when "union_set"
+      when "struct_or_union_set"
         visit_struct_or_union_set node
       when "external_var_set"
         # Nothing to do
@@ -2217,6 +2218,8 @@ module Crystal
     end
 
     def visit(node : PointerOf)
+      node.exp.accept self
+
       var = case node_exp = node.exp
             when Var
               meta_var = @meta_vars[node_exp.name]
@@ -2229,7 +2232,6 @@ module Crystal
             when Global
               visit_global node_exp
             when Path
-              node_exp.accept self
               if const = node_exp.target_const
                 const.value
               else
@@ -2242,6 +2244,7 @@ module Crystal
               node_exp.raise "can't take address of #{node_exp}"
             end
       node.bind_to var
+      false
     end
 
     def visit(node : TypeOf)
@@ -2260,7 +2263,8 @@ module Crystal
 
       @in_type_args = old_in_type_args
 
-      node.bind_to node.expressions
+      node.expressions.each &.add_observer(node)
+      node.update
 
       @vars = old_vars
 

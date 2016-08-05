@@ -2075,6 +2075,11 @@ class String
   # "Hello, World".index("H", 2) # => nil
   # ```
   def index(search : Char, offset = 0)
+    # If it's ASCII we can delegate to slice
+    if search.ascii?
+      return to_slice.index(search.ord.to_u8, offset)
+    end
+
     offset += size if offset < 0
     return nil if offset < 0
 
@@ -2119,18 +2124,13 @@ class String
   # "Hello, World".rindex("H", 2) # => nil
   # ```
   def rindex(search : Char, offset = size - 1)
+    # If it's ASCII we can delegate to slice
+    if search.ascii?
+      return to_slice.rindex(search.ord.to_u8, offset)
+    end
+
     offset += size if offset < 0
     return nil if offset < 0
-
-    # If it's ASCII we can search from the end
-    if search.ord < 0x80
-      offset.downto(0) do |i|
-        if to_unsafe[i] == search.ord
-          return i
-        end
-      end
-      return nil
-    end
 
     last_index = nil
 
@@ -3043,7 +3043,7 @@ class String
   def ends_with?(char : Char)
     return false unless bytesize > 0
 
-    if char.ord < 0x80 || ascii_only?
+    if char.ascii? || ascii_only?
       return to_unsafe[bytesize - 1] == char.ord
     end
 

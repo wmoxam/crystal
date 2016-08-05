@@ -353,7 +353,7 @@ describe "Semantic: class" do
     mod.types["Foo"].types["Bar"].as(NonGenericClassType)
   end
 
-  it "doesn't lookup type in parents' containers, and lookups and in program" do
+  it "doesn't lookup type in parents' namespaces, and lookups and in program" do
     code = "
       class Bar
       end
@@ -705,7 +705,7 @@ describe "Semantic: class" do
           1
         end
 
-        $x = self.foo as Int32
+        $x = self.foo.as(Int32)
       end
 
       $x
