@@ -151,6 +151,25 @@ module Crystal
       end
     end
 
+    # Returns the minimum and maximum number of arguments that must
+    # be passed to this method.
+    def min_max_args_sizes
+      max_size = args.size
+      default_value_index = args.index(&.default_value)
+      min_size = default_value_index || max_size
+      splat_index = self.splat_index
+      if splat_index
+        if args[splat_index].name.empty?
+          min_size = {default_value_index || splat_index, splat_index}.min
+          max_size = splat_index
+        else
+          min_size -= 1 unless default_value_index && default_value_index < splat_index
+          max_size = Int32::MAX
+        end
+      end
+      {min_size, max_size}
+    end
+
     def clone_without_location
       a_def = previous_def
       a_def.previous = previous
@@ -338,6 +357,12 @@ module Crystal
     # This is set to `true` for an `If` that was created from an `||` expression.
     property? or = false
 
+    # This is set to `true` when the compiler is sure that the condition is truthy
+    property? truthy = false
+
+    # This is set to `true` when the compiler is sure that the condition is falsey
+    property? falsey = false
+
     def clone_without_location
       a_if = previous_def
       a_if.and = and?
@@ -513,7 +538,7 @@ module Crystal
                    ArrayLiteral HashLiteral RegexLiteral RangeLiteral
                    Case StringInterpolation
                    MacroExpression MacroIf MacroFor MultiAssign
-                   SizeOf InstanceSizeOf Global Require) %}
+                   SizeOf InstanceSizeOf Global Require Select) %}
     class {{name.id}}
       include ExpandableNode
     end
@@ -524,7 +549,7 @@ module Crystal
   end
 
   class ModuleDef
-    property! resolved_type : Type
+    property! resolved_type : ModuleType
   end
 
   class LibDef

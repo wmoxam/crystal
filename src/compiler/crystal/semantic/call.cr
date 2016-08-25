@@ -350,7 +350,7 @@ class Crystal::Call
         lookup_arg_types = match.arg_types
       end
       match_owner = match.context.instantiated_type
-      def_instance_owner = self_type || match_owner
+      def_instance_owner = (self_type || match_owner).as(DefInstanceContainer)
 
       def_instance_key = DefInstanceKey.new(match.def.object_id, lookup_arg_types, block_type, named_args_types)
       typed_def = def_instance_owner.lookup_def_instance def_instance_key if use_cache
@@ -411,12 +411,6 @@ class Crystal::Call
   end
 
   def check_return_type(typed_def, typed_def_return_type, match, match_owner)
-    if match.def.owner == program.class_type
-      root_type = program.class_type
-    else
-      self_type = match_owner.instance_type
-      root_type = self_type.ancestors.find(&.instance_of?(match.def.owner.instance_type)) || self_type
-    end
     return_type = lookup_node_type(match.context, typed_def_return_type)
     return_type = program.nil if return_type.void?
     typed_def.freeze_type = return_type
@@ -473,15 +467,22 @@ class Crystal::Call
 
   def named_tuple_indexer_helper(args, arg_types, owner, instance_type, nilable)
     arg = args.first
-    if arg.is_a?(SymbolLiteral)
+
+    case arg # TODO: use || after 0.19
+    when SymbolLiteral
       name = arg.value
+    when StringLiteral
+      name = arg.value
+    end
+
+    if name
       index = instance_type.name_index(name)
       if index || nilable
         indexer_def = yield instance_type, (index || -1)
         indexer_match = Match.new(indexer_def, arg_types, MatchContext.new(owner, owner))
         return Matches.new([indexer_match] of Match, true)
       else
-        raise "missing key '#{arg.value}' for named tuple #{owner}"
+        raise "missing key '#{name}' for named tuple #{owner}"
       end
     end
     nil
@@ -558,6 +559,7 @@ class Crystal::Call
 
     # TODO: do this better
     lookup = enclosing_def.owner
+
     case lookup
     when VirtualType
       parents = lookup.base_type.ancestors
@@ -567,11 +569,11 @@ class Crystal::Call
       parents = ancestors[index_of_ancestor + 1..-1]
     when GenericModuleType
       ancestors = parent_visitor.scope.ancestors
-      index_of_ancestor = ancestors.index { |ancestor| ancestor.is_a?(IncludedGenericModule) && ancestor.module == lookup }.not_nil!
+      index_of_ancestor = ancestors.index { |ancestor| ancestor.is_a?(GenericModuleInstanceType) && ancestor.generic_type == lookup }.not_nil!
       parents = ancestors[index_of_ancestor + 1..-1]
     when GenericType
       ancestors = parent_visitor.scope.ancestors
-      index_of_ancestor = ancestors.index { |ancestor| ancestor.is_a?(InheritedGenericClass) && ancestor.extended_class == lookup }
+      index_of_ancestor = ancestors.index { |ancestor| ancestor.is_a?(GenericClassInstanceType) && ancestor.generic_type == lookup }
       if index_of_ancestor
         parents = ancestors[index_of_ancestor + 1..-1]
       else
@@ -610,7 +612,7 @@ class Crystal::Call
     match = Match.new(previous, arg_types, context, named_args_types)
     matches = Matches.new([match] of Match, true)
 
-    unless MatchesLookup.match_def(signature, previous_item, context)
+    unless signature.match(previous_item, context)
       raise_matches_not_found scope, previous.name, arg_types, named_args_types, matches
     end
 
@@ -1049,8 +1051,11 @@ class Crystal::Call
     {typed_def, args}
   end
 
-  def attach_subclass_observer(type : ModuleType)
-    @subclass_notifier.try &.remove_subclass_observer(self)
+  def attach_subclass_observer(type : SubclassObservable)
+    if (subclass_notifier = @subclass_notifier).is_a?(SubclassObservable)
+      subclass_notifier.remove_subclass_observer(self)
+    end
+
     type.add_subclass_observer(self)
     @subclass_notifier = type
   end

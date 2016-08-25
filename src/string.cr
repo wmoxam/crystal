@@ -1179,7 +1179,7 @@ class String
 
   # Returns a new string _tr_anslating characters using *from* and *to* as a
   # map. If *to* is shorter than *from*, the last character in *to* is used for
-  # the rest.
+  # the rest. If *to* is empty, this acts like `String#delete`.
   #
   # ```
   # "aabbcc".tr("abc", "xyz") # => "xxyyzz"
@@ -1187,6 +1187,7 @@ class String
   # "aabbcc".tr("a", "xyz")   # => "xxbbcc"
   # ```
   def tr(from : String, to : String)
+    return delete(from) if to.empty?
     multi = nil
     table = StaticArray(Int32, 256).new(-1)
     reader = Char::Reader.new(to)
@@ -1679,7 +1680,7 @@ class String
   # # but "o" is not and so is not included
   # "hello".gsub(/(he|l|o)/, {"he": "ha", "l": "la"}) # => "halala"
   # ```
-  def gsub(pattern : Regex, hash : Hash(String, _))
+  def gsub(pattern : Regex, hash : Hash(String, _) | NamedTuple)
     gsub(pattern) do |match|
       hash[match]?
     end
@@ -1739,6 +1740,18 @@ class String
   def gsub(hash : Hash(Char, _))
     gsub do |char|
       hash[char]? || char
+    end
+  end
+
+  # Returns a string where all chars in the given hash are replaced
+  # by the corresponding *tuple* values.
+  #
+  # ```
+  # "hello".gsub({'e' => 'a', 'l' => 'd'}) # => "haddo"
+  # ```
+  def gsub(tuple : NamedTuple)
+    gsub do |char|
+      tuple[char.to_s]? || char
     end
   end
 

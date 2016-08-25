@@ -20,9 +20,7 @@ module Crystal
   # can also include other modules (this happens when you do `include Module`
   # at the top-level).
   class Program < NonGenericModuleType
-    include DefContainer
     include DefInstanceContainer
-    include MatchesLookup
 
     # All symbols (:foo, :bar) found in the program
     getter symbols = Set(String).new
@@ -101,6 +99,9 @@ module Crystal
 
     # The constant for ARGV_UNSAFE
     getter! argv : Const
+
+    # Default standard output to use in a program, while compiling.
+    property stdout : IO = STDOUT
 
     def initialize
       super(self, self, "main")
@@ -198,7 +199,7 @@ module Crystal
       class_var_and_const_initializers << argv_unsafe
 
       types["GC"] = gc = NonGenericModuleType.new self, self, "GC"
-      gc.metaclass.add_def Def.new("add_finalizer", [Arg.new("object")], Nop.new)
+      gc.metaclass.as(ModuleType).add_def Def.new("add_finalizer", [Arg.new("object")], Nop.new)
 
       define_crystal_constants
     end
@@ -474,10 +475,6 @@ module Crystal
     end
 
     # Next come overrides for the type system
-
-    def program
-      self
-    end
 
     def metaclass
       self

@@ -1,21 +1,53 @@
 require "../types"
 
 module Crystal
-  class Type
-    def lookup_matches(signature, owner = self, path_lookup = self, matches_array = nil)
-      raise "Bug: #{self} doesn't implement lookup_matches"
-    end
-
-    def lookup_matches_without_parents(signature, owner = self, path_lookup = self, matches_array = nil)
-      raise "Bug: #{self} doesn't implement lookup_matches_without_parents"
-    end
-
-    def lookup_matches_with_modules(signature, owner = self, path_lookup = self, matches_array = nil)
-      raise "Bug: #{self} doesn't implement lookup_matches_with_modules"
+  record NamedArgumentType, name : String, type : Type do
+    def self.from_args(named_args : Array(NamedArgument)?)
+      named_args.try &.map { |named_arg| new(named_arg.name, named_arg.value.type) }
     end
   end
 
-  module MatchesLookup
+  record CallSignature,
+    name : String,
+    arg_types : Array(Type),
+    block : Block?,
+    named_args : Array(NamedArgumentType)?
+
+  class Type
+    def lookup_matches(signature, owner = self, path_lookup = self, matches_array = nil)
+      matches = lookup_matches_without_parents(signature, owner, path_lookup, matches_array)
+      return matches if matches.cover_all?
+
+      matches_array = matches.matches
+
+      cover = matches.cover
+
+      is_new = owner.metaclass? && signature.name == "new"
+      if is_new
+        # For a `new` method we need to do this in case a `new` is defined
+        # in a module type
+        my_parents = instance_type.parents.try &.map(&.metaclass)
+      else
+        my_parents = parents
+      end
+
+      # `new` must only be searched in ancestors if this type itself doesn't define
+      # an `initialize` or `self.new` method. This was already computed in `new.cr`
+      # and can be known by invoking `lookup_new_in_ancestors?`
+      if my_parents && !(!lookup_new_in_ancestors? && is_new)
+        my_parents.each do |parent|
+          matches = parent.lookup_matches(signature, owner, parent, matches_array)
+          if matches.cover_all?
+            return matches
+          else
+            matches_array = matches.matches
+          end
+        end
+      end
+
+      Matches.new(matches_array, cover, owner, false)
+    end
+
     def lookup_matches_without_parents(signature, owner = self, path_lookup = self, matches_array = nil)
       if defs = self.defs.try &.[signature.name]?
         context = MatchContext.new(owner, path_lookup)
@@ -30,7 +62,7 @@ module Crystal
           macro_owner = item.def.macro_owner?
           context.defining_type = macro_owner if macro_owner
 
-          match = MatchesLookup.match_def(signature, item, context)
+          match = signature.match(item, context)
 
           context.defining_type = path_lookup if macro_owner
 
@@ -82,61 +114,21 @@ module Crystal
       # and can be known by invoking `lookup_new_in_ancestors?`
       if my_parents && !(!lookup_new_in_ancestors? && is_new)
         my_parents.each do |parent|
-          break unless parent.is_a?(IncludedGenericModule) || parent.module?
+          break unless parent.module?
 
-          # If this is a generic instance type and our parent is the generic class, use
-          # this type as the type lookup (so we can find type arguments)
-          path_lookup = parent
-          path_lookup = self if self.is_a?(GenericClassInstanceType) && path_lookup == self.generic_class
-
-          matches = parent.lookup_matches_with_modules(signature, owner, path_lookup, matches_array)
+          matches = parent.lookup_matches_with_modules(signature, owner, parent, matches_array)
           return matches unless matches.empty?
         end
       end
 
       Matches.new(matches_array, Cover.create(signature, matches_array), owner, false)
     end
+  end
 
-    def lookup_matches(signature, owner = self, path_lookup = self, matches_array = nil)
-      matches = lookup_matches_without_parents(signature, owner, path_lookup, matches_array)
-      return matches if matches.cover_all?
+  struct CallSignature
+    def match(def_metadata, context)
+      signature = self
 
-      matches_array = matches.matches
-
-      cover = matches.cover
-
-      is_new = owner.metaclass? && signature.name == "new"
-      if is_new
-        # For a `new` method we need to do this in case a `new` is defined
-        # in a module type
-        my_parents = instance_type.parents.try &.map(&.metaclass)
-      else
-        my_parents = parents
-      end
-
-      # `new` must only be searched in ancestors if this type itself doesn't define
-      # an `initialize` or `self.new` method. This was already computed in `new.cr`
-      # and can be known by invoking `lookup_new_in_ancestors?`
-      if my_parents && !(!lookup_new_in_ancestors? && is_new)
-        my_parents.each do |parent|
-          # If this is a generic instance type and our parent is the generic class, use
-          # this type as the type lookup (so we can find type arguments)
-          path_lookup = parent
-          path_lookup = self if self.is_a?(GenericClassInstanceType) && path_lookup == self.generic_class
-
-          matches = parent.lookup_matches(signature, owner, path_lookup, matches_array)
-          if matches.cover_all?
-            return matches
-          else
-            matches_array = matches.matches
-          end
-        end
-      end
-
-      Matches.new(matches_array, cover, owner, false)
-    end
-
-    def self.match_def(signature, def_metadata, context)
       # If yieldness isn't the same there's no match
       if def_metadata.yields != !!signature.block
         return nil
@@ -317,6 +309,8 @@ module Crystal
   end
 
   module VirtualTypeLookup
+    record Change, type : ModuleType, def : Def
+
     def virtual_lookup(type)
       type
     end
@@ -380,7 +374,7 @@ module Crystal
                   # We want to add this cloned def at the end, because if we search subtype matches
                   # in the next iteration we will find it, and we don't want that.
                   changes ||= [] of Change
-                  changes << Change.new(subtype_lookup, cloned_def)
+                  changes << Change.new(subtype_lookup.as(ModuleType), cloned_def)
 
                   new_subtype_matches ||= [] of Match
                   new_subtype_matches.push Match.new(cloned_def, full_subtype_match.arg_types, MatchContext.new(subtype_lookup, full_subtype_match.context.defining_type, full_subtype_match.context.free_vars), full_subtype_match.named_arg_types)
