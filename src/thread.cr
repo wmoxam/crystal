@@ -50,7 +50,11 @@ class Thread
   # All threads, so the GC can see them (GC doesn't scan thread locals)
   @@threads = Set(Thread).new
 
-  @[ThreadLocal]
+  {% if flag?(:openbsd) %}
+    # test :p
+  {% else %}
+    @[ThreadLocal]
+  {% end %}
   @@current = new
 
   def self.current

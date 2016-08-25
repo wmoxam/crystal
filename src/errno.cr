@@ -9,8 +9,10 @@ lib LibC
       @[ThreadLocal]
       $errno : Int
     {% end %}
-  {% elsif flag?(:darwin) || flag?(:freebsd) || flag?(:openbsd) %}
+  {% elsif flag?(:darwin) || flag?(:freebsd) %}
     fun __error : Int*
+  {% elsif flag?(:openbsd) %}
+    fun __error = __errno : Int*
   {% end %}
 end
 
