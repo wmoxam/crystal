@@ -10,7 +10,7 @@ lib LibC
   alias GidT = UInt
   alias IdT = Long
   alias InoT = UInt
-  alias ModeT = UShort
+  alias ModeT = UInt32
   alias NlinkT = UShort
   alias OffT = Long
   alias PidT = Int

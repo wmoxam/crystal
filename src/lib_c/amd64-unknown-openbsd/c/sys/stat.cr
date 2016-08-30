@@ -26,12 +26,10 @@ lib LibC
   S_ISGID  = 0o002000
   S_ISVTX  = 0o001000
 
-  alias FflagsT = UInt
-
   struct Stat
+    st_mode : ModeT
     st_dev : DevT
     st_ino : InoT
-    st_mode : ModeT
     st_nlink : NlinkT
     st_uid : UidT
     st_gid : GidT
@@ -42,8 +40,8 @@ lib LibC
     st_size : OffT
     st_blocks : BlkcntT
     st_blksize : BlksizeT
-    st_flags : FflagsT
-    st_gen : UInt
+    st_flags : UInt32
+    st_gen : UInt32
   end
 
   fun chmod(x0 : Char*, x1 : ModeT) : Int
