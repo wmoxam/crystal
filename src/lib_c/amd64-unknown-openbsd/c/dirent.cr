@@ -4,8 +4,9 @@ lib LibC
   type DIR = Void
 
   struct Dirent
-    d_fileno : UInt
-    d_reclen : UShort
+    d_fileno : InoT
+    d_off : OffT
+    d_reclen : UInt16
     d_type : UChar
     d_namlen : UChar
     d_name : StaticArray(Char, 256)
