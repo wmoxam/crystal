@@ -9,10 +9,10 @@ lib LibC
   alias DevT = UInt
   alias GidT = UInt
   alias IdT = Long
-  alias InoT = UInt
+  alias InoT = UInt64
   alias ModeT = UInt32
   alias NlinkT = UShort
-  alias OffT = Long
+  alias OffT = Int64
   alias PidT = Int
   type PthreadAttrT = Void*
   type PthreadCondT = Void*
