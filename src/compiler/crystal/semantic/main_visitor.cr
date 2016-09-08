@@ -28,7 +28,6 @@ module Crystal
     ValidGlobalAttributes   = %w(ThreadLocal)
     ValidClassVarAttributes = %w(ThreadLocal)
 
-    property! scope
     getter! typed_def
     property! untyped_def : Def
     setter untyped_def
@@ -172,8 +171,8 @@ module Crystal
       return false if node.type?
 
       instance_type = node.name.type.instance_type
-      unless instance_type.is_a?(GenericClassType)
-        node.raise "#{instance_type} is not a generic class, it's a #{instance_type.type_desc}"
+      unless instance_type.is_a?(GenericType)
+        node.raise "#{instance_type} is not a generic type, it's a #{instance_type.type_desc}"
       end
 
       if instance_type.double_variadic?
@@ -215,7 +214,7 @@ module Crystal
         end
       end
 
-      node.instance_type = instance_type
+      node.instance_type = instance_type.as(GenericType)
       node.type_vars.each &.add_observer(node)
       node.named_args.try &.each &.value.add_observer(node)
       node.update
@@ -612,15 +611,12 @@ module Crystal
       when .metaclass?
         node.raise "@instance_vars are not yet allowed in metaclasses: use @@class_vars instead"
       when InstanceVarContainer
-        var_with_owner = scope.lookup_instance_var_with_owner?(node.name)
-        unless var_with_owner
-          undefined_instance_variable(scope, node)
-        end
-        if !var_with_owner.instance_var.type?
+        var = scope.lookup_instance_var?(node.name)
+        unless var
           undefined_instance_variable(scope, node)
         end
         check_self_closured
-        var_with_owner.instance_var
+        var
       else
         node.raise "Bug: #{scope} is not an InstanceVarContainer"
       end
@@ -1116,7 +1112,7 @@ module Crystal
       block_arg.try &.set_enclosing_call node
       named_args.try &.each &.value.set_enclosing_call(node)
 
-      check_super_in_initialize node
+      check_super_or_previous_def_in_initialize node
 
       # If the call has a block we need to create a copy of the variables
       # and bind them to the current variables. Then, when visiting
@@ -1229,12 +1225,13 @@ module Crystal
       return false
     end
 
-    # If it's a super call inside an initialize we treat
-    # set instance vars from superclasses to not-nil
-    def check_super_in_initialize(node)
-      if @is_initialize && node.name == "super" && !node.obj
-        superclass_vars = scope.all_instance_vars.keys - scope.instance_vars.keys
-        superclass_vars.each do |name|
+    # If it's a super or previous_def call inside an initialize we treat
+    # set instance vars from superclasses to not-nil.
+    def check_super_or_previous_def_in_initialize(node)
+      if @is_initialize && !node.obj && (node.name == "super" || node.name == "previous_def")
+        all_vars = scope.all_instance_vars.keys
+        all_vars -= scope.instance_vars.keys if node.name == "super"
+        all_vars.each do |name|
           instance_var = scope.lookup_instance_var(name)
 
           # If a variable was used before this supercall, it becomes nilable
@@ -1678,6 +1675,8 @@ module Crystal
 
       filter_vars cond_type_filters
 
+      before_then_vars = @vars.dup
+
       node.then.accept self
 
       then_vars = @vars
@@ -1697,6 +1696,7 @@ module Crystal
         filter_vars cond_type_filters, &.not
       end
 
+      before_else_vars = @vars.dup
       node.else.accept self
 
       else_vars = @vars
@@ -1704,7 +1704,7 @@ module Crystal
       @type_filters = nil
       else_unreachable = @unreachable
 
-      merge_if_vars node, cond_vars, then_vars, else_vars, then_unreachable, else_unreachable
+      merge_if_vars node, cond_vars, then_vars, else_vars, before_then_vars, before_else_vars, then_unreachable, else_unreachable
 
       if needs_type_filters?
         case node
@@ -1730,7 +1730,7 @@ module Crystal
     #     before the 'if' and it doesn't appear in one of the branches.
     #   - Don't use the type of a branch that is unreachable (ends with return,
     #     break or with a call that is NoReturn)
-    def merge_if_vars(node, cond_vars, then_vars, else_vars, then_unreachable, else_unreachable)
+    def merge_if_vars(node, cond_vars, then_vars, else_vars, before_then_vars, before_else_vars, then_unreachable, else_unreachable)
       all_vars_names = Set(String).new
       then_vars.each_key do |name|
         all_vars_names << name
@@ -1742,12 +1742,21 @@ module Crystal
       all_vars_names.each do |name|
         cond_var = cond_vars[name]?
         then_var = then_vars[name]?
+        before_then_var = before_then_vars[name]?
         else_var = else_vars[name]?
+        before_else_var = before_else_vars[name]?
 
         # Check whether the var didn't change at all
         next if then_var.same?(else_var)
 
         if_var = MetaVar.new(name)
+
+        # Check if no types were changes in either then 'then' and 'else' branches
+        if cond_var && then_var.same?(before_then_var) && else_var.same?(before_else_var) && !then_unreachable && !else_unreachable
+          @vars[name] = cond_var
+          next
+        end
+
         if_var.nil_if_read = !!(then_var.try(&.nil_if_read?) || else_var.try(&.nil_if_read?))
 
         if then_var && else_var
@@ -2538,19 +2547,7 @@ module Crystal
     end
 
     def visit(node : NumberLiteral)
-      node.type = case node.kind
-                  when :i8  then program.int8
-                  when :i16 then program.int16
-                  when :i32 then program.int32
-                  when :i64 then program.int64
-                  when :u8  then program.uint8
-                  when :u16 then program.uint16
-                  when :u32 then program.uint32
-                  when :u64 then program.uint64
-                  when :f32 then program.float32
-                  when :f64 then program.float64
-                  else           raise "Invalid node kind: #{node.kind}"
-                  end
+      node.type = program.type_from_literal_kind node.kind
     end
 
     def visit(node : CharLiteral)
@@ -2797,7 +2794,6 @@ module Crystal
     end
 
     def lookup_var_or_instance_var(var : InstanceVar)
-      scope = @scope.as(InstanceVarContainer)
       scope.lookup_instance_var(var.name)
     end
 

@@ -229,7 +229,17 @@ class Crystal::Type
           # Check the case of T resolving to a number
           if type_var.is_a?(Path) && type_var.names.size == 1
             type = @root.lookup_path(type_var)
-            if type.is_a?(ASTNode)
+            case type
+            when Const
+              interpreter = MathInterpreter.new(@root)
+              begin
+                num = interpreter.interpret(type.value)
+                type_vars << NumberLiteral.new(num)
+              rescue ex : Crystal::Exception
+                type_var.raise "expanding constant value for a number value", inner: ex
+              end
+              next
+            when ASTNode
               type_vars << type
               next
             end
@@ -340,6 +350,19 @@ class Crystal::Type
         node.raise "typing typeof", inner: ex
       end
       program.type_merge expressions
+    end
+
+    def lookup(node : Splat)
+      splat_type = in_generic_args { lookup(node.exp) }
+      case splat_type
+      when TypeParameter
+        # Consider the case of *T, where T is a type parameter
+        TypeSplat.new(@root.program, splat_type)
+      else
+        return if !@raise
+
+        node.raise "can only splat tuple type, not #{splat_type}"
+      end
     end
 
     def lookup(node : Underscore)

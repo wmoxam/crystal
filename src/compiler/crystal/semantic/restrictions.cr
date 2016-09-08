@@ -224,6 +224,18 @@ module Crystal
       other.types.any? { |o| self.restriction_of?(o, owner) }
     end
 
+    def restriction_of?(other : Generic, owner)
+      self_type = owner.lookup_path(self)
+      if self_type
+        other_type = owner.lookup_type?(other)
+        if other_type
+          return self_type.restriction_of?(other_type, owner)
+        end
+      end
+
+      false
+    end
+
     def restriction_of?(other, owner)
       false
     end
@@ -240,6 +252,18 @@ module Crystal
   end
 
   class Generic
+    def restriction_of?(other : Path, owner)
+      other_type = owner.lookup_type?(self)
+      if other_type
+        self_type = owner.lookup_path(other)
+        if self_type
+          return self_type.restriction_of?(other_type, owner)
+        end
+      end
+
+      false
+    end
+
     def restriction_of?(other : Generic, owner)
       return true if self == other
       return false unless name == other.name && type_vars.size == other.type_vars.size
@@ -385,6 +409,10 @@ module Crystal
       restrict (other.type? || other.restriction), context
     end
 
+    def restrict(other : NumberLiteral, context)
+      nil
+    end
+
     def restrict(other : ASTNode, context)
       raise "Bug: unsupported restriction: #{self} vs. #{other}"
     end
@@ -476,7 +504,7 @@ module Crystal
     end
 
     def restriction_of?(other : GenericInstanceType, owner)
-      return false unless generic_type == other.generic_type
+      return super unless generic_type == other.generic_type
 
       type_vars.each do |name, type_var|
         other_type_var = other.type_vars[name]
@@ -506,6 +534,7 @@ module Crystal
 
     def restrict(other : Generic, context)
       generic_type = context.defining_type.lookup_path other.name
+      generic_type = generic_type.remove_alias if generic_type.is_a? AliasType
       return super unless generic_type == self.generic_type
 
       generic_type = generic_type.as(GenericType)
@@ -729,6 +758,7 @@ module Crystal
 
     def restrict(other : Type, context)
       other = other.remove_alias
+      base_type = self.base_type
 
       if self == other
         self
@@ -740,9 +770,9 @@ module Crystal
       elsif other.is_a?(VirtualType)
         result = base_type.restrict(other.base_type, context) || other.base_type.restrict(base_type, context)
         result ? result.virtual_type : nil
-      elsif other.implements?(self.base_type)
+      elsif other.implements?(base_type)
         other.virtual_type
-      elsif self.base_type.implements?(other)
+      elsif base_type.implements?(other)
         self
       elsif other.module?
         if base_type.implements?(other)
@@ -753,6 +783,15 @@ module Crystal
           end
           program.type_merge_union_of types
         end
+      elsif base_type.is_a?(GenericInstanceType) && other.is_a?(GenericType)
+        # Consider the case of Foo(Int32) vs. Bar(T), with Bar(T) < Foo(T):
+        # we want to return Bar(Int32), so we search in Bar's generic instantiations
+        other.generic_types.values.each do |instance|
+          if instance.implements?(base_type)
+            return instance
+          end
+        end
+        nil
       else
         nil
       end
@@ -842,6 +881,20 @@ module Crystal
   end
 
   class GenericClassInstanceMetaclassType
+    def restrict(other : Metaclass, context)
+      restricted = instance_type.restrict(other.name, context)
+      instance_type == restricted ? self : nil
+    end
+
+    def restrict(other : MetaclassType, context)
+      return self if instance_type.generic_type.metaclass == other
+
+      restricted = instance_type.restrict(other.instance_type, context)
+      restricted ? self : nil
+    end
+  end
+
+  class GenericModuleInstanceMetaclassType
     def restrict(other : Metaclass, context)
       restricted = instance_type.restrict(other.name, context)
       instance_type == restricted ? self : nil
