@@ -86,7 +86,7 @@ LLVMMetadataRef LLVMDIBuilderCreateCompileUnit2(DIBuilderRef Dref, unsigned Lang
 #endif
 }
 
-LLVMMetadataRef LLVMDIBuilderCreateFunction(
+LLVMMetadataRef LLVMDIBuilderCreateFunction2(
     DIBuilderRef Dref, LLVMMetadataRef Scope, const char *Name,
     const char *LinkageName, LLVMMetadataRef File, unsigned Line,
     LLVMMetadataRef CompositeType, bool IsLocalToUnit, bool IsDefinition,
@@ -106,7 +106,7 @@ LLVMMetadataRef LLVMDIBuilderCreateFunction(
   return wrap(Sub);
 }
 
-LLVMMetadataRef LLVMDIBuilderCreateLexicalBlock(DIBuilderRef Dref,
+LLVMMetadataRef LLVMDIBuilderCreateLexicalBlock2(DIBuilderRef Dref,
                                                 LLVMMetadataRef Scope,
                                                 LLVMMetadataRef File,
                                                 unsigned Line,
@@ -115,7 +115,7 @@ LLVMMetadataRef LLVMDIBuilderCreateLexicalBlock(DIBuilderRef Dref,
                                        unwrapDI<DIFile>(File), Line, Column));
 }
 
-LLVMMetadataRef LLVMDIBuilderCreateBasicType(DIBuilderRef Dref,
+LLVMMetadataRef LLVMDIBuilderCreateBasicType2(DIBuilderRef Dref,
                                              const char *Name,
                                              uint64_t SizeInBits,
                                              uint64_t AlignInBits,
@@ -127,7 +127,7 @@ LLVMMetadataRef LLVMDIBuilderCreateBasicType(DIBuilderRef Dref,
 #endif
 }
 
-LLVMMetadataRef LLVMDIBuilderGetOrCreateTypeArray(DIBuilderRef Dref,
+LLVMMetadataRef LLVMDIBuilderGetOrCreateTypeArray2(DIBuilderRef Dref,
                                                   LLVMMetadataRef *Data,
                                                   unsigned Length) {
   Metadata **DataValue = unwrap(Data);
@@ -136,7 +136,7 @@ LLVMMetadataRef LLVMDIBuilderGetOrCreateTypeArray(DIBuilderRef Dref,
           .get());
 }
 
-LLVMMetadataRef LLVMDIBuilderGetOrCreateArray(DIBuilderRef Dref,
+LLVMMetadataRef LLVMDIBuilderGetOrCreateArray2(DIBuilderRef Dref,
                                               LLVMMetadataRef *Data,
                                               unsigned Length) {
   Metadata **DataValue = unwrap(Data);
@@ -145,13 +145,13 @@ LLVMMetadataRef LLVMDIBuilderGetOrCreateArray(DIBuilderRef Dref,
 }
 
 LLVMMetadataRef
-LLVMDIBuilderCreateSubroutineType(DIBuilderRef Dref, LLVMMetadataRef File,
+LLVMDIBuilderCreateSubroutineType2(DIBuilderRef Dref, LLVMMetadataRef File,
                                   LLVMMetadataRef ParameterTypes) {
   DISubroutineType *CT = Dref->createSubroutineType(DITypeRefArray(unwrap<MDTuple>(ParameterTypes)));
   return wrap(CT);
 }
 
-LLVMMetadataRef LLVMDIBuilderCreateAutoVariable(
+LLVMMetadataRef LLVMDIBuilderCreateAutoVariable2(
     DIBuilderRef Dref, LLVMMetadataRef Scope, const char *Name,
     LLVMMetadataRef File, unsigned Line, LLVMMetadataRef Ty,
     int AlwaysPreserve,
@@ -173,7 +173,7 @@ LLVMMetadataRef LLVMDIBuilderCreateAutoVariable(
   return wrap(V);
 }
 
-LLVMMetadataRef LLVMDIBuilderCreateParameterVariable(
+LLVMMetadataRef LLVMDIBuilderCreateParameterVariable2(
     DIBuilderRef Dref, LLVMMetadataRef Scope, const char *Name,
     unsigned ArgNo, LLVMMetadataRef File, unsigned Line,
     LLVMMetadataRef Ty, int AlwaysPreserve,
@@ -189,7 +189,7 @@ LLVMMetadataRef LLVMDIBuilderCreateParameterVariable(
   return wrap(V);
 }
 
-LLVMValueRef LLVMDIBuilderInsertDeclareAtEnd(DIBuilderRef Dref,
+LLVMValueRef LLVMDIBuilderInsertDeclareAtEnd2(DIBuilderRef Dref,
                                              LLVMValueRef Storage,
                                              LLVMMetadataRef VarInfo,
                                              LLVMMetadataRef Expr,
@@ -203,12 +203,12 @@ LLVMValueRef LLVMDIBuilderInsertDeclareAtEnd(DIBuilderRef Dref,
   return wrap(Instr);
 }
 
-LLVMMetadataRef LLVMDIBuilderCreateExpression(DIBuilderRef Dref, int64_t *Addr,
+LLVMMetadataRef LLVMDIBuilderCreateExpression2(DIBuilderRef Dref, int64_t *Addr,
                                               size_t Length) {
   return wrap(Dref->createExpression(ArrayRef<int64_t>(Addr, Length)));
 }
 
-LLVMMetadataRef LLVMDIBuilderCreateEnumerationType(
+LLVMMetadataRef LLVMDIBuilderCreateEnumerationType2(
     DIBuilderRef Dref, LLVMMetadataRef Scope, const char *Name,
     LLVMMetadataRef File, unsigned LineNumber, uint64_t SizeInBits,
     uint64_t AlignInBits, LLVMMetadataRef Elements,
@@ -227,7 +227,7 @@ LLVMMetadataRef LLVMDIBuilderCreateEnumerator(DIBuilderRef Dref,
 }
 
 LLVMMetadataRef
-LLVMDIBuilderCreateStructType(DIBuilderRef Dref,
+LLVMDIBuilderCreateStructType2(DIBuilderRef Dref,
                               LLVMMetadataRef Scope,
                               const char *Name,
                               LLVMMetadataRef File,
@@ -249,7 +249,7 @@ LLVMDIBuilderCreateStructType(DIBuilderRef Dref,
 }
 
 LLVMMetadataRef
-LLVMDIBuilderCreateReplaceableCompositeType(DIBuilderRef Dref,
+LLVMDIBuilderCreateReplaceableCompositeType2(DIBuilderRef Dref,
                                             LLVMMetadataRef Scope,
                                             const char *Name,
                                             LLVMMetadataRef File,
@@ -276,7 +276,7 @@ LLVMDIBuilderReplaceTemporary(DIBuilderRef Dref,
 }
 
 LLVMMetadataRef
-LLVMDIBuilderCreateMemberType(DIBuilderRef Dref, LLVMMetadataRef Scope,
+LLVMDIBuilderCreateMemberType2(DIBuilderRef Dref, LLVMMetadataRef Scope,
                               const char *Name, LLVMMetadataRef File,
                               unsigned Line, uint64_t SizeInBits,
                               uint64_t AlignInBits, uint64_t OffsetInBits,
@@ -292,7 +292,7 @@ LLVMDIBuilderCreateMemberType(DIBuilderRef Dref, LLVMMetadataRef Scope,
   return wrap(DT);
 }
 
-LLVMMetadataRef LLVMDIBuilderCreatePointerType(DIBuilderRef Dref,
+LLVMMetadataRef LLVMDIBuilderCreatePointerType2(DIBuilderRef Dref,
                                                LLVMMetadataRef PointeeType,
                                                uint64_t SizeInBits,
                                                uint64_t AlignInBits,
@@ -306,7 +306,7 @@ LLVMMetadataRef LLVMDIBuilderCreatePointerType(DIBuilderRef Dref,
   return wrap(T);
 }
 
-LLVMMetadataRef LLVMTemporaryMDNode(LLVMContextRef C, LLVMMetadataRef *MDs,
+LLVMMetadataRef LLVMTemporaryMDNode2(LLVMContextRef C, LLVMMetadataRef *MDs,
                                     unsigned Count) {
   return wrap(MDTuple::getTemporary(*unwrap(C),
                                     ArrayRef<Metadata *>(unwrap(MDs), Count))
@@ -440,7 +440,11 @@ void LLVMWriteBitcodeWithSummaryToFile(LLVMModuleRef mref, const char *File) {
   if (EC) return;
 
   llvm::ModuleSummaryIndex moduleSummaryIndex = llvm::buildModuleSummaryIndex(*m, nullptr, nullptr);
+#if LLVM_VERSION_GE(7, 0)
+  llvm::WriteBitcodeToFile(*m, OS, true, &moduleSummaryIndex, true);
+#else
   llvm::WriteBitcodeToFile(m, OS, true, &moduleSummaryIndex, true);
+#endif
 #endif
 }
 
