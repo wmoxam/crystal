@@ -41,6 +41,8 @@ end
     IS_40 = {{LibLLVM::VERSION.starts_with?("4.0")}}
     IS_39 = {{LibLLVM::VERSION.starts_with?("3.9")}}
     IS_38 = {{LibLLVM::VERSION.starts_with?("3.8")}}
+
+    IS_LT_70 = {{compare_versions(LibLLVM::VERSION, "0.7.0") < 0}}
   end
 {% end %}
 
@@ -363,4 +365,6 @@ lib LibLLVM
 
   fun const_int_get_sext_value = LLVMConstIntGetSExtValue(ValueRef) : Int64
   fun const_int_get_zext_value = LLVMConstIntGetZExtValue(ValueRef) : UInt64
+
+  fun set_param_alignment = LLVMSetParamAlignment(arg : ValueRef, align : UInt)
 end
