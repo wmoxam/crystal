@@ -1,28 +1,26 @@
-require "./llvm"
-
 # Intrinsics as exported by LLVM.
 # Use `Intrinsics` to have a unified API across LLVM versions.
 lib LibIntrinsics
   fun debugtrap = "llvm.debugtrap"
   {% if flag?(:x86_64) %}
-    {% if LibLLVM::IS_LT_70 %}
+    {% if flag?(:"compiler_has_llvm7+") %}
+       fun memcpy = "llvm.memcpy.p0i8.p0i8.i64"(dest : Void*, src : Void*, len : UInt64, is_volatile : Bool)
+       fun memmove = "llvm.memmove.p0i8.p0i8.i64"(dest : Void*, src : Void*, len : UInt64, is_volatile : Bool)
+       fun memset = "llvm.memset.p0i8.i64"(dest : Void*, val : UInt8, len : UInt64, is_volatile : Bool)
+    {% else %}
       fun memcpy = "llvm.memcpy.p0i8.p0i8.i64"(dest : Void*, src : Void*, len : UInt64, align : UInt32, is_volatile : Bool)
       fun memmove = "llvm.memmove.p0i8.p0i8.i64"(dest : Void*, src : Void*, len : UInt64, align : UInt32, is_volatile : Bool)
       fun memset = "llvm.memset.p0i8.i64"(dest : Void*, val : UInt8, len : UInt64, align : UInt32, is_volatile : Bool)
-    {% else %}
-      fun memcpy = "llvm.memcpy.p0i8.p0i8.i64"(dest : Void*, src : Void*, len : UInt64, is_volatile : Bool)
-      fun memmove = "llvm.memmove.p0i8.p0i8.i64"(dest : Void*, src : Void*, len : UInt64, is_volatile : Bool)
-      fun memset = "llvm.memset.p0i8.i64"(dest : Void*, val : UInt8, len : UInt64, is_volatile : Bool)
     {% end %}
   {% else %}
-    {% if LibLLVM::IS_LT_70 %}
-      fun memcpy = "llvm.memcpy.p0i8.p0i8.i32"(dest : Void*, src : Void*, len : UInt32, align : UInt32, is_volatile : Bool)
-      fun memmove = "llvm.memmove.p0i8.p0i8.i32"(dest : Void*, src : Void*, len : UInt32, align : UInt32, is_volatile : Bool)
-      fun memset = "llvm.memset.p0i8.i32"(dest : Void*, val : UInt8, len : UInt32, align : UInt32, is_volatile : Bool)
-    {% else %}
+    {% if flag?(:"compiler_has_llvm7+") %}
       fun memcpy = "llvm.memcpy.p0i8.p0i8.i32"(dest : Void*, src : Void*, len : UInt32, is_volatile : Bool)
       fun memmove = "llvm.memmove.p0i8.p0i8.i32"(dest : Void*, src : Void*, len : UInt32, is_volatile : Bool)
       fun memset = "llvm.memset.p0i8.i32"(dest : Void*, val : UInt8, len : UInt32, is_volatile : Bool)
+    {% else %}
+      fun memcpy = "llvm.memcpy.p0i8.p0i8.i32"(dest : Void*, src : Void*, len : UInt32, align : UInt32, is_volatile : Bool)
+      fun memmove = "llvm.memmove.p0i8.p0i8.i32"(dest : Void*, src : Void*, len : UInt32, align : UInt32, is_volatile : Bool)
+      fun memset = "llvm.memset.p0i8.i32"(dest : Void*, val : UInt8, len : UInt32, align : UInt32, is_volatile : Bool)
     {% end %}
   {% end %}
   fun read_cycle_counter = "llvm.readcyclecounter" : UInt64
@@ -44,26 +42,26 @@ module Intrinsics
   end
 
   macro memcpy(dest, src, len, is_volatile)
-    {% if LibLLVM::IS_LT_70 %}
-      LibIntrinsics.memcpy({{dest}}, {{src}}, {{len}}, 0, {{is_volatile}})
-    {% else %}
+    {% if flag?(:"compiler_has_llvm7+") %}
       LibIntrinsics.memcpy({{dest}}, {{src}}, {{len}}, {{is_volatile}})
+    {% else %}
+      LibIntrinsics.memcpy({{dest}}, {{src}}, {{len}}, 0, {{is_volatile}})
     {% end %}
   end
 
   macro memmove(dest, src, len, is_volatile)
-    {% if LibLLVM::IS_LT_70 %}
-      LibIntrinsics.memmove({{dest}}, {{src}}, {{len}}, 0, {{is_volatile}})
-    {% else %}
+    {% if flag?(:"compiler_has_llvm7+") %}
       LibIntrinsics.memmove({{dest}}, {{src}}, {{len}}, {{is_volatile}})
+    {% else %}
+      LibIntrinsics.memmove({{dest}}, {{src}}, {{len}}, 0, {{is_volatile}})
     {% end %}
   end
 
   macro memset(dest, val, len, is_volatile)
-    {% if LibLLVM::IS_LT_70 %}
-      LibIntrinsics.memset({{dest}}, {{val}}, {{len}}, 0, {{is_volatile}})
-    {% else %}
+    {% if flag?(:"compiler_has_llvm7+") %}
       LibIntrinsics.memset({{dest}}, {{val}}, {{len}}, {{is_volatile}})
+    {% else %}
+      LibIntrinsics.memset({{dest}}, {{val}}, {{len}}, 0, {{is_volatile}})
     {% end %}
   end
 

@@ -44,6 +44,8 @@ class Crystal::Program
     end
     flags.add "openbsd" if codegen_target.openbsd?
 
+    flags.add "compiler_has_llvm7+" unless LibLLVM::IS_LT_70
+
     flags
   end
 end
