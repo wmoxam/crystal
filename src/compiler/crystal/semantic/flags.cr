@@ -47,6 +47,8 @@ class Crystal::Program
       set.add "bits32"
     end
 
+    set.add "compiler_has_llvm7+" unless LibLLVM::IS_LT_70
+
     set
   end
 end

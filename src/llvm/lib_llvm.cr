@@ -42,7 +42,7 @@ end
     IS_39 = {{LibLLVM::VERSION.starts_with?("3.9")}}
     IS_38 = {{LibLLVM::VERSION.starts_with?("3.8")}}
 
-    IS_LT_70 = {{compare_versions(LibLLVM::VERSION, "0.7.0") < 0}}
+    IS_LT_70 = {{compare_versions(LibLLVM::VERSION, "7.0.0") < 0}}
   end
 {% end %}
 
