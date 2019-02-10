@@ -452,7 +452,7 @@ void LLVMWriteBitcodeWithSummaryToFile(LLVMModuleRef mref, const char *File) {
 // LLVMNormalizeTargetTriple is available from LLVM in LLVM 8 and up,
 // in lower releases, we emulate it.
 #if LLVM_VERSION_LE(7, 0)
-char *LLVMNormalizeTargetTriple(const char* triple) {
+char *LLVMNormalizeTargetTriple2(const char* triple) {
     return strdup(Triple::normalize(StringRef(triple)).c_str());
 }
 #endif
