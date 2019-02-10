@@ -144,11 +144,12 @@ require "crystal/system/time"
 # time.to_s("%Y-%m-%d %H:%M:%S %:z") # => "2015-10-12 10:30:00 +00:00"
 # ```
 #
-# Similarly, `Time.parse` is used to construct a `Time` instance from date-time
+# Similarly, `Time.parse` and `Time.parse!` are used to construct a `Time` instance from date-time
 # information in a string, according to a specified pattern:
 #
 # ```
-# Time.parse("2015-10-12 10:30:00 +00:00", "%Y-%m-%d %H:%M:%S %z")
+# Time.parse("2015-10-12 10:30:00 +00:00", "%Y-%m-%d %H:%M:%S %z", Time::Location::UTC)
+# Time.parse!("2015-10-12 10:30:00 +00:00", "%Y-%m-%d %H:%M:%S %z")
 # ```
 #
 # See `Time::Format` for all directives.
@@ -173,7 +174,7 @@ require "crystal/system/time"
 #
 # Instances of `Time` are focused on telling time – using a "wall clock".
 # When `Time.now` is called multiple times, the difference between the
-# returned instances is not guranteed to equal to the time elapsed between
+# returned instances is not guaranteed to equal to the time elapsed between
 # making the calls; even the order of the returned `Time` instances might
 # not reflect invocation order.
 #
@@ -188,7 +189,7 @@ require "crystal/system/time"
 # computer's wall clock has changed between both calls.
 #
 # As an alternative, the operating system also provides a monotonic clock.
-# It's time-line has no specfied starting point but is strictly linearly
+# Its time-line has no specfied starting point but is strictly linearly
 # increasing.
 #
 # This monotonic clock should always be used for measuring elapsed time.
@@ -404,8 +405,8 @@ struct Time
   #
   # This process can sometimes be ambiguous, mostly due skipping or repeating
   # times at time zone transitions. For example, in `America/New_York` the
-  # date-time `2011-03-13 02:15:00` never occured, there is a gap between time
-  # zones. In return, `2011-11-06 01:15:00` occured twice because of overlapping
+  # date-time `2011-03-13 02:15:00` never occurred, there is a gap between time
+  # zones. In return, `2011-11-06 01:15:00` occurred twice because of overlapping
   # time zones.
   #
   # In such cases, the choice of time zone, and therefore the time, is not
@@ -785,7 +786,7 @@ struct Time
   end
 
   # Creates an instance specified by a commercial week date consisting of ISO
-  # calendar *year* and *week* and a *day_of_week`.
+  # calendar *year*, *week* and a *day_of_week*.
   #
   # This equates to the results from `#calendar_week` and `#day_of_week`.
   #
@@ -796,7 +797,7 @@ struct Time
   # * `day_of_week`: `1..7`
   def self.week_date(year : Int32, week : Int32, day_of_week : Int32 | DayOfWeek, hour : Int32 = 0, minute : Int32 = 0, second : Int32 = 0, *, nanosecond : Int32 = 0, location : Location = Location.local) : self
     # For this calculation we need to know the weekday of Januar 4.
-    # The number of the day plus a fixed offset of 4 gives a correction valud
+    # The number of the day plus a fixed offset of 4 gives a correction value
     # for this year.
     jan4_day_of_week = Time.utc(year, 1, 4).day_of_week
     correction = jan4_day_of_week.to_i + 4
@@ -877,7 +878,7 @@ struct Time
   # Returns `true` if `#location` equals to the local time zone
   # (`Time::Location.local`).
   #
-  # Since the system's settings may change during a programm's runtime,
+  # Since the system's settings may change during a program's runtime,
   # the result may not be identical between different invocations.
   def local? : Bool
     location.local?
@@ -889,7 +890,7 @@ struct Time
   # date-time representation (wall clock) would compare differently.
   #
   # To ensure the comparison is also true for local wall clock, both date-times
-  # need to be transforemd to the same time zone.
+  # need to be transformed to the same time zone.
   def <=>(other : Time) : Int32
     cmp = total_seconds <=> other.total_seconds
     cmp = nanosecond <=> other.nanosecond if cmp == 0
@@ -1132,7 +1133,7 @@ struct Time
   end
 
   # Parses a `Time` from *time* string using the given *pattern* and
-  # `Time::Location.local` asdefault location
+  # `Time::Location.local` as default location
   #
   # See `Time::Format` for details.
   #

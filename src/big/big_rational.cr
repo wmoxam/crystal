@@ -24,7 +24,7 @@ struct BigRational < Number
   private MANTISSA_BITS  = 53
   private MANTISSA_SHIFT = (1_i64 << MANTISSA_BITS).to_f64
 
-  # Create a new `BigRational`.
+  # Creates a new `BigRational`.
   #
   # If *denominator* is 0, this will raise an exception.
   def initialize(numerator : Int, denominator : Int)
@@ -175,6 +175,18 @@ struct BigRational < Number
 
   def to_f64
     LibGMP.mpq_get_d(mpq)
+  end
+
+  def to_f32!
+    to_f64.to_f32!
+  end
+
+  def to_f64!
+    to_f64
+  end
+
+  def to_f!
+    to_f64!
   end
 
   def to_big_f

@@ -79,7 +79,8 @@ class Socket < IO
     end
   end
 
-  protected def initialize(@fd : Int32, @family, @type, @protocol = Protocol::IP, blocking = false)
+  # Creates a Socket from an existing socket file descriptor.
+  def initialize(@fd : Int32, @family, @type, @protocol = Protocol::IP, blocking = false)
     @closed = false
     init_close_on_exec(@fd)
 
@@ -89,7 +90,7 @@ class Socket < IO
     end
   end
 
-  # Force opened sockets to be closed on `exec(2)`. Only for platforms that don't
+  # Forces opened sockets to be closed on `exec(2)`. Only for platforms that don't
   # support `SOCK_CLOEXEC` (e.g., Darwin).
   protected def init_close_on_exec(fd : Int32)
     {% unless LibC.has_constant?(:SOCK_CLOEXEC) %}
@@ -183,13 +184,13 @@ class Socket < IO
   end
 
   # Tells the previously bound socket to listen for incoming connections.
-  def listen(backlog = SOMAXCONN)
+  def listen(backlog : Int = SOMAXCONN)
     listen(backlog) { |errno| raise errno }
   end
 
   # Tries to listen for connections on the previously bound socket.
   # Yields an `Errno` on failure.
-  def listen(backlog = SOMAXCONN)
+  def listen(backlog : Int = SOMAXCONN)
     unless LibC.listen(fd, backlog) == 0
       yield Errno.new("listen")
     end

@@ -23,7 +23,7 @@ struct BitArray
   # The number of bits the BitArray stores
   getter size : Int32
 
-  # Create a new `BitArray` of *size* bits.
+  # Creates a new `BitArray` of *size* bits.
   #
   # *initial* optionally sets the starting value, `true` or `false`, for all bits
   # in the array.
@@ -44,7 +44,7 @@ struct BitArray
     false
   end
 
-  def unsafe_at(index : Int)
+  def unsafe_fetch(index : Int)
     bit_index, sub_index = index.divmod(32)
     (@bits[bit_index] & (1 << sub_index)) > 0
   end
@@ -85,7 +85,7 @@ struct BitArray
   # ba[5..10]   # => BitArray[]
   # ba[-2...-1] # => BitArray[0]
   # ```
-  def [](range : Range(Int, Int))
+  def [](range : Range)
     self[*Indexable.range_to_index_and_count(range, size)]
   end
 

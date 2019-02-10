@@ -176,10 +176,6 @@ describe "Deque" do
       Deque{1, 2, 3}[2]?.should eq(3)
       Deque{1, 2, 3}[3]?.should be_nil
     end
-
-    it "same access by at" do
-      Deque{1, 2, 3}[1].should eq(Deque{1, 2, 3}.at(1))
-    end
   end
 
   describe "[]=" do
@@ -549,7 +545,7 @@ describe "Deque" do
 
   describe "to_s" do
     it "does to_s" do
-      it { Deque{1, 2, 3}.to_s.should eq("Deque{1, 2, 3}") }
+      Deque{1, 2, 3}.to_s.should eq("Deque{1, 2, 3}")
     end
 
     it "does with recursive" do

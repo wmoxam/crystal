@@ -139,9 +139,23 @@ describe "Array" do
       [1, 2, 3][2..-2].should eq([] of Int32)
     end
 
+    it "gets on range without end" do
+      [1, 2, 3][1..nil].should eq([2, 3])
+    end
+
+    it "gets on range without begin" do
+      [1, 2, 3][nil..1].should eq([1, 2])
+    end
+
     it "raises on index out of bounds with range" do
       expect_raises IndexError do
         [1, 2, 3][4..6]
+      end
+    end
+
+    it "raises on index out of bounds with range without end" do
+      expect_raises IndexError do
+        [1, 2, 3][4..nil]
       end
     end
 
@@ -200,10 +214,6 @@ describe "Array" do
     it "gets nilable" do
       [1, 2, 3][2]?.should eq(3)
       [1, 2, 3][3]?.should be_nil
-    end
-
-    it "same access by at" do
-      [1, 2, 3][1].should eq([1, 2, 3].at(1))
     end
 
     it "doesn't exceed limits" do
@@ -275,6 +285,14 @@ describe "Array" do
       a = [1, 2, 3, 4, 5]
       a[1...1] = 6
       a.should eq([1, 6, 2, 3, 4, 5])
+
+      a = [1, 2, 3, 4, 5]
+      a[2..nil] = 6
+      a.should eq([1, 2, 6])
+
+      a = [1, 2, 3, 4, 5]
+      a[nil..2] = 6
+      a.should eq([6, 4, 5])
     end
 
     it "replaces a subrange with an array" do
@@ -301,6 +319,14 @@ describe "Array" do
       a = [1, 2, 3, 4, 5]
       a[1..3] = [6, 7, 8]
       a.should eq([1, 6, 7, 8, 5])
+
+      a = [1, 2, 3, 4, 5]
+      a[2..nil] = [6, 7]
+      a.should eq([1, 2, 6, 7])
+
+      a = [1, 2, 3, 4, 5]
+      a[nil..2] = [6, 7]
+      a.should eq([6, 7, 4, 5])
     end
   end
 
@@ -447,6 +473,10 @@ describe "Array" do
       a = [1, 2, 3, 4, 5, 6, 7]
       a.delete_at(1..2)
       a.should eq([1, 4, 5, 6, 7])
+
+      a = [1, 2, 3, 4, 5, 6, 7]
+      a.delete_at(3..nil)
+      a.should eq([1, 2, 3])
     end
 
     it "deletes with index and count" do
@@ -576,6 +606,18 @@ describe "Array" do
       a = ['a', 'b', 'c']
       expected = ['x', 'x', 'c']
       a.fill('x', -3..1).should eq(expected)
+    end
+
+    it "replaces only values in range without end" do
+      a = ['a', 'b', 'c']
+      expected = ['a', 'x', 'x']
+      a.fill('x', 1..nil).should eq(expected)
+    end
+
+    it "replaces only values in range begin" do
+      a = ['a', 'b', 'c']
+      expected = ['x', 'x', 'c']
+      a.fill('x', nil..1).should eq(expected)
     end
 
     it "works with a block" do
@@ -1100,7 +1142,7 @@ describe "Array" do
 
   describe "to_s" do
     it "does to_s" do
-      it { [1, 2, 3].to_s.should eq("[1, 2, 3]") }
+      [1, 2, 3].to_s.should eq("[1, 2, 3]")
     end
 
     it "does with recursive" do
@@ -1300,11 +1342,27 @@ describe "Array" do
     ary2.should be(ary1)
   end
 
+  it "selects! with pattern" do
+    ary1 = [1, 2, 3, 4, 5]
+
+    ary2 = ary1.select!(2..4)
+    ary2.should eq([2, 3, 4])
+    ary2.should be(ary1)
+  end
+
   it "rejects!" do
     ary1 = [1, 2, 3, 4, 5]
 
     ary2 = ary1.reject! { |elem| elem % 2 == 0 }
     ary2.should eq([1, 3, 5])
+    ary2.should be(ary1)
+  end
+
+  it "rejects! with pattern" do
+    ary1 = [1, 2, 3, 4, 5]
+
+    ary2 = ary1.reject!(2..4)
+    ary2.should eq([1, 5])
     ary2.should be(ary1)
   end
 
@@ -1865,5 +1923,18 @@ describe "Array" do
     u = [9, [10, 11].each]
     a = [s, t, u, 12, 13]
     a.flatten.to_a.should eq([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
+  end
+
+  it "#skip" do
+    ary = [1, 2, 3]
+    ary.skip(0).should eq([1, 2, 3])
+    ary.skip(1).should eq([2, 3])
+    ary.skip(2).should eq([3])
+    ary.skip(3).should eq([] of Int32)
+    ary.skip(4).should eq([] of Int32)
+
+    expect_raises(ArgumentError, "Attempt to skip negative size") do
+      ary.skip(-1)
+    end
   end
 end

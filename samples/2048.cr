@@ -1,6 +1,5 @@
 # Based on 2048 by Gabriele Cirulli - gabrielecirulli.github.io/2048
 
-require "io/console"
 require "colorize"
 
 module Screen
@@ -153,7 +152,7 @@ class Drawer
   end
 
   def cell_line(fill, cell)
-    content = @current_row.at(cell) { "empty" }
+    content = @current_row.fetch(cell) { "empty" }
     tile_value = (content == "empty" ? 0 : (content.to_i? || 0)).to_i
     content = "" if !@content_line || content == "empty"
 

@@ -66,10 +66,10 @@ struct Tuple
   include Indexable(Union(*T))
   include Comparable(Tuple)
 
-  # Creates a tuple that will contain the given arguments.
+  # Creates a tuple that will contain the given values.
   #
   # This method is useful in macros and generic code because with it you can
-  # creates empty tuples, something that you can't do with a tuple literal.
+  # create empty tuples, something that you can't do with a tuple literal.
   #
   # ```
   # Tuple.new(1, "hello", 'x') #=> {1, "hello", 'x'}
@@ -122,7 +122,7 @@ struct Tuple
     {% end %}
   end
 
-  def unsafe_at(index : Int)
+  def unsafe_fetch(index : Int)
     self[index]
   end
 
@@ -205,7 +205,7 @@ struct Tuple
   end
 
   # Returns `true` if this tuple has the same size as the other tuple
-  # and their elements are equal to each other when  compared with `==`.
+  # and their elements are equal to each other when compared with `==`.
   #
   # ```
   # t1 = {1, "hello"}

@@ -12,7 +12,7 @@ abstract class OpenSSL::SSL::Socket < IO
           hostname.to_unsafe.as(Pointer(Void))
         )
 
-        {% if LibSSL::OPENSSL_102 %}
+        {% if compare_versions(LibSSL::OPENSSL_VERSION, "1.0.2") >= 0 %}
           param = LibSSL.ssl_get0_param(@ssl)
 
           if ::Socket.ip?(hostname)
@@ -129,7 +129,7 @@ abstract class OpenSSL::SSL::Socket < IO
     @bio.io.flush
   end
 
-  {% if LibSSL::OPENSSL_102 %}
+  {% if compare_versions(LibSSL::OPENSSL_VERSION, "1.0.2") >= 0 %}
   # Returns the negotiated ALPN protocol (eg: `"h2"`) of `nil` if no protocol was
   # negotiated.
   def alpn_protocol
@@ -148,23 +148,14 @@ abstract class OpenSSL::SSL::Socket < IO
           ret = LibSSL.ssl_shutdown(@ssl)
           break if ret == 1
           raise OpenSSL::SSL::Error.new(@ssl, ret, "SSL_shutdown") if ret < 0
-        rescue e : Errno
-          case e.errno
-          when 0
-            # OpenSSL claimed an underlying syscall failed, but that didn't set any error state,
-            # assume we're done
-            break
-          when Errno::EAGAIN
-            # Ignore/retry, shutdown did not complete yet
-          when Errno::EINPROGRESS
-            # Ignore/retry, another operation not complete yet
-          else
-            raise e
-          end
         rescue e : OpenSSL::SSL::Error
           case e.error
           when .want_read?, .want_write?
             # Ignore, shutdown did not complete yet
+          when .syscall?
+            # OpenSSL claimed an underlying syscall failed, but that didn't set any error state,
+            # assume we're done
+            break
           else
             raise e
           end
@@ -180,5 +171,12 @@ abstract class OpenSSL::SSL::Socket < IO
 
   def unbuffered_rewind
     raise IO::Error.new("Can't rewind OpenSSL::SSL::Socket::Client")
+  end
+
+  # Returns the hostname provided through Server Name Indication (SNI)
+  def hostname : String?
+    if host_name = LibSSL.ssl_get_servername(@ssl, LibSSL::TLSExt::NAMETYPE_host_name)
+      String.new(host_name)
+    end
   end
 end

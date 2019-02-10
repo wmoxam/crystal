@@ -368,6 +368,10 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
       node.raise "structs can't have finalizers because they are not tracked by the GC"
     end
 
+    if target_type.is_a?(EnumType) && node.name == "initialize"
+      node.raise "enums can't define an `initialize` method, try using `def self.new`"
+    end
+
     target_type.add_def node
     node.set_type @program.nil
 
@@ -676,10 +680,10 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
           if counter == 0 # In case the member is set to 0
             1
           else
-            counter * 2
+            counter &* 2
           end
         else
-          counter + 1
+          counter &+ 1
         end
       {new_counter, all_value}
     else
@@ -1124,8 +1128,8 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
     scope
   end
 
-  # Turn all finished macros into expanded nodes, and
-  # add them to the program
+  # Turns all finished macros into expanded nodes, and
+  # adds them to the program
   def process_finished_hooks
     @finished_hooks.each do |hook|
       self.current_type = hook.scope

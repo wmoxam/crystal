@@ -84,9 +84,8 @@ class Fiber
   end
 
   # :nodoc:
-  def initialize
+  def initialize(@stack : Void*)
     @proc = Proc(Void).new { }
-    @stack = Pointer(Void).null
     @stack_top = _fiber_get_stack_top
     @stack_bottom = GC.stack_bottom
     @name = "main"

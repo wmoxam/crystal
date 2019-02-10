@@ -68,7 +68,7 @@ end
 
 {% for type in %w(Int8 Int16 Int32 Int64 UInt8 UInt16 UInt32 UInt64) %}
   def {{type.id}}.new(pull : JSON::PullParser)
-    {{type.id}}.new(pull.read_int)
+    {{type.id}}.new!(pull.read_int)
   end
 {% end %}
 
@@ -123,11 +123,7 @@ end
 def Hash.new(pull : JSON::PullParser)
   hash = new
   pull.read_object do |key|
-    if pull.kind == :null
-      pull.read_next
-    else
-      hash[key] = V.new(pull)
-    end
+    hash[key] = V.new(pull)
   end
   hash
 end
@@ -234,7 +230,7 @@ end
 # or other variations of [ISO 8601](http://xml.coverpages.org/ISO-FDIS-8601.pdf).
 #
 # The JSON format itself does not specify a time data type, this method just
-# assumes that a string holding a ISO 8601 time format can be # interpreted as a
+# assumes that a string holding a ISO 8601 time format can be interpreted as a
 # time value.
 #
 # See `#to_json` for reference.

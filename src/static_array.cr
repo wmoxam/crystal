@@ -35,7 +35,7 @@
 struct StaticArray(T, N)
   include Indexable(T)
 
-  # Create a new `StaticArray` with the given *args*. The type of the
+  # Creates a new `StaticArray` with the given *args*. The type of the
   # static array will be the union of the type of the given *args*,
   # and its size will be the number of elements in *args*.
   #
@@ -114,7 +114,7 @@ struct StaticArray(T, N)
   end
 
   @[AlwaysInline]
-  def unsafe_at(index : Int)
+  def unsafe_fetch(index : Int)
     to_unsafe[index]
   end
 
@@ -174,7 +174,7 @@ struct StaticArray(T, N)
   end
 
   # Modifies `self` by randomizing the order of elements in the array
-  # using the given *random* number generator.  Returns `self`.
+  # using the given *random* number generator. Returns `self`.
   #
   # ```
   # a = StaticArray(Int32, 3).new { |i| i + 1 } # => StaticArray[1, 2, 3]

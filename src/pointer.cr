@@ -92,7 +92,10 @@ struct Pointer(T)
   # ptr2.address # => 1230
   # ```
   def -(other : Int)
-    self + (-other)
+    # TODO: If throwing on overflow for integer conversion is implemented,
+    # then (here and in `Pointer#-`) for a `UInt64` argument the call to
+    # `to_i64` should become `as_unsafe`.
+    self + (-other.to_i64!)
   end
 
   # Returns -1, 0 or 1 if this pointer's address is less, equal or greater than *other*'s address,
@@ -381,7 +384,7 @@ struct Pointer(T)
     end
   end
 
-  # Like `map!`, but yield 2 arugments, the element and it's index
+  # Like `map!`, but yields 2 arguments, the element and its index
   def map_with_index!(count : Int, &block)
     count.times do |i|
       self[i] = yield self[i], i

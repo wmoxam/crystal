@@ -164,6 +164,11 @@ struct Enum
     def to_{{name.id}} : {{type}}
       value.to_{{name.id}}
     end
+
+    # Returns the value of this enum member as a `{{type}}`
+    def to_{{name.id}}! : {{type}}
+      value.to_{{name.id}}!
+    end
   {% end %}
 
   # Returns the enum member that results from adding *other*
@@ -381,9 +386,9 @@ struct Enum
   # Returns the enum member that has the given name, or
   # raises `ArgumentError` if no such member exists. The comparison is made by using
   # `String#camelcase` and `String#downcase` between *string* and
-  # the enum members names, so a member named "FourtyTwo" or "FOURTY_TWO"
-  # is found with any of these strings: "fourty_two", "FourtyTwo", "FOURTY_TWO",
-  # "FOURTYTWO", "fourtytwo".
+  # the enum members names, so a member named "FortyTwo" or "FORTY_TWO"
+  # is found with any of these strings: "forty_two", "FortyTwo", "FORTY_TWO",
+  # "FORTYTWO", "fortytwo".
   #
   # ```
   # Color.parse("Red")    # => Color::Red
@@ -397,9 +402,9 @@ struct Enum
   # Returns the enum member that has the given name, or
   # `nil` if no such member exists. The comparison is made by using
   # `String#camelcase` and `String#downcase` between *string* and
-  # the enum members names, so a member named "FourtyTwo" or "FOURTY_TWO"
-  # is found with any of these strings: "fourty_two", "FourtyTwo", "FOURTY_TWO",
-  # "FOURTYTWO", "fourtytwo".
+  # the enum members names, so a member named "FortyTwo" or "FORTY_TWO"
+  # is found with any of these strings: "forty_two", "FortyTwo", "FORTY_TWO",
+  # "FORTYTWO", "fortytwo".
   #
   # ```
   # Color.parse?("Red")    # => Color::Red
