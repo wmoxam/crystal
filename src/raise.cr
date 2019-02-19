@@ -81,7 +81,7 @@ end
 
   # :nodoc:
   fun __crystal_personality(state : LibUnwind::State, ucb : LibUnwind::ControlBlock*, context : LibUnwind::Context) : LibUnwind::ReasonCode
-    #puts "\n__crystal_personality(#{state}, #{ucb}, #{context})"
+    puts "\n__crystal_personality(#{state}, #{ucb}, #{context})"
 
     case LibUnwind::State.new(state.value & LibUnwind::State::ACTION_MASK.value)
     when LibUnwind::State::VIRTUAL_UNWIND_FRAME
@@ -151,7 +151,7 @@ end
     ip = LibUnwind.get_ip(context)
     throw_offset = ip - 1 - start
     lsd = LibUnwind.get_language_specific_data(context)
-    #puts "Personality - actions : #{actions}, start: #{start}, ip: #{ip}, throw_offset: #{throw_offset}"
+    puts "Personality - actions : #{actions}, start: #{start}, ip: #{ip}, throw_offset: #{throw_offset}"
 
     leb = LEBReader.new(lsd)
     leb.read_uint8               # @LPStart encoding
@@ -167,12 +167,12 @@ end
       cs_length = leb.read_uint32
       cs_addr = leb.read_uint32
       action = leb.read_uleb128
-      #puts "cs_offset: #{cs_offset}, cs_length: #{cs_length}, cs_addr: #{cs_addr}, action: #{action}"
+      puts "cs_offset: #{cs_offset}, cs_length: #{cs_length}, cs_addr: #{cs_addr}, action: #{action}"
 
       if cs_addr != 0
         if cs_offset <= throw_offset && throw_offset <= cs_offset + cs_length
           if actions.includes? LibUnwind::Action::SEARCH_PHASE
-            #puts "found"
+            puts "found"
             return LibUnwind::ReasonCode::HANDLER_FOUND
           end
 
@@ -180,14 +180,14 @@ end
             LibUnwind.set_gr(context, LibUnwind::EH_REGISTER_0, exception_object.address)
             LibUnwind.set_gr(context, LibUnwind::EH_REGISTER_1, exception_object.value.exception_type_id)
             LibUnwind.set_ip(context, start + cs_addr)
-            #puts "install"
+            puts "install"
             return LibUnwind::ReasonCode::INSTALL_CONTEXT
           end
         end
       end
     end
 
-    #puts "continue"
+    puts "continue"
     return LibUnwind::ReasonCode::CONTINUE_UNWIND
   end
 {% end %}
