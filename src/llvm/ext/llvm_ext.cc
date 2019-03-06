@@ -222,8 +222,9 @@ LLVMMetadataRef LLVMDIBuilderCreateEnumerationType2(
 }
 
 LLVMMetadataRef LLVMDIBuilderCreateEnumerator(DIBuilderRef Dref,
-                                              const char *Name, int64_t Value) {
-  DIEnumerator *e = Dref->createEnumerator(Name, Value);
+                                              const char *Name, int64_t Value,
+                                              bool IsUnsigned) {
+  DIEnumerator *e = Dref->createEnumerator(Name, Value, IsUnsigned);
   return wrap(e);
 }
 

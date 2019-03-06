@@ -65,7 +65,7 @@ lib LibLLVMExt
                                                                    addr : Int64*, length : SizeT) : Metadata
 
   fun di_builder_get_or_create_array = LLVMDIBuilderGetOrCreateArray2(builder : DIBuilder, data : Metadata*, length : SizeT) : Metadata
-  fun di_builder_create_enumerator = LLVMDIBuilderCreateEnumerator(builder : DIBuilder, name : Char*, value : Int64) : Metadata
+  fun di_builder_create_enumerator = LLVMDIBuilderCreateEnumerator(builder : DIBuilder, name : Char*, value : Int64, isUnsigned : Bool) : Metadata
   fun di_builder_create_enumeration_type = LLVMDIBuilderCreateEnumerationType2(builder : DIBuilder,
                                                                               scope : Metadata, name : Char*, file : Metadata, line_number : UInt,
                                                                               size_in_bits : UInt64, align_in_bits : UInt64, elements : Metadata, underlying_type : Metadata) : Metadata

@@ -55,8 +55,8 @@ struct LLVM::DIBuilder
     LibLLVMExt.di_builder_get_or_create_array(self, elements, elements.size)
   end
 
-  def create_enumerator(name, value)
-    LibLLVMExt.di_builder_create_enumerator(self, name, value)
+  def create_enumerator(name, value, is_unsigned)
+    LibLLVMExt.di_builder_create_enumerator(self, name, value, is_unsigned)
   end
 
   def create_enumeration_type(scope, name, file, line_number, size_in_bits, align_in_bits, elements, underlying_type)

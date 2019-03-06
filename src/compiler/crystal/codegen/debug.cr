@@ -73,12 +73,18 @@ module Crystal
 
     def create_debug_type(type : EnumType)
       elements = type.types.map do |name, item|
+        is_unsigned = false
         value = if item.is_a?(Const) && (value2 = item.value).is_a?(NumberLiteral)
-                  value2.value.to_i64 rescue value2.value.to_u64
+                  begin
+                    value2.value.to_i64
+                  rescue
+                    is_unsigned = true
+                    value2.value.to_u64
+                  end
                 else
                   0
                 end
-        di_builder.create_enumerator(name, value)
+        di_builder.create_enumerator(name, value, is_unsigned)
       end
       elements = di_builder.get_or_create_array(elements)
       di_builder.create_enumeration_type(nil, type.to_s, nil, 1, 32, 32, elements, get_debug_type(type.base_type))
