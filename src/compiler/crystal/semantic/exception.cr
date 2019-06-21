@@ -5,9 +5,9 @@ module Crystal
   class TypeException < Exception
     getter node
     property inner : Exception?
-    @line : Int32?
-    @column : Int32
-    @size : Int32
+    getter line : Int32?
+    getter column : Int32
+    getter size : Int32
 
     def color=(color)
       @color = !!color
@@ -15,15 +15,9 @@ module Crystal
     end
 
     def self.for_node(node, message, inner = nil)
-      location = node.location
+      location = node.name_location || node.location
       if location
-        column_number = node.name_column_number
-        name_size = node.name_size
-        if column_number == 0 || (end_location = node.end_location) && end_location.filename != location.filename
-          name_size = 0
-          column_number = location.column_number
-        end
-        ex = new message, location.line_number, column_number, location.filename, name_size, inner
+        ex = new message, location.line_number, location.column_number, location.filename, node.name_size, inner
         wrap_macro_expression(ex, location)
       else
         new message, nil, 0, nil, 0, inner
@@ -70,6 +64,17 @@ module Crystal
       if inner = @inner
         inner.to_json_single(json)
       end
+    end
+
+    def inspect_with_backtrace(io : IO) : Nil
+      to_s(io)
+
+      backtrace?.try &.each do |frame|
+        io.print "  from "
+        io.puts frame
+      end
+
+      io.flush
     end
 
     def to_s_with_source(source, io)
@@ -128,7 +133,7 @@ module Crystal
 
       if is_macro
         io << '\n'
-        append_error_message io, @message
+        append_error_message io, msg
       end
 
       if inner && inner.has_location?
@@ -261,17 +266,17 @@ module Crystal
 
       line = lines[line_number - 1]
 
-      name_column = node.name_column_number
+      name_location = node.name_location
       name_size = node.name_size
 
       io << "    "
       io << replace_leading_tabs_with_spaces(line.chomp)
       io.puts
 
-      return unless name_column > 0
+      return unless name_location
 
       io << "    "
-      io << (" " * (name_column - 1))
+      io << (" " * (name_location.column_number - 1))
       with_color.green.bold.surround(io) do
         io << '^'
         if name_size > 0
@@ -306,7 +311,7 @@ module Crystal
   class Program
     def undefined_global_variable(node, similar_name)
       common = String.build do |str|
-        str << "Can't infer the type of global variable '#{node.name}'"
+        str << "can't infer the type of global variable '#{node.name}'"
         if similar_name
           str << colorize(" (did you mean #{similar_name}?)").yellow.bold.to_s
         end
@@ -324,7 +329,7 @@ module Crystal
 
     def undefined_class_variable(node, owner, similar_name)
       common = String.build do |str|
-        str << "Can't infer the type of class variable '#{node.name}' of #{owner.devirtualize}"
+        str << "can't infer the type of class variable '#{node.name}' of #{owner.devirtualize}"
         if similar_name
           str << colorize(" (did you mean #{similar_name}?)").yellow.bold.to_s
         end
@@ -342,7 +347,7 @@ module Crystal
 
     def undefined_instance_variable(node, owner, similar_name)
       common = String.build do |str|
-        str << "Can't infer the type of instance variable '#{node.name}' of #{owner.devirtualize}"
+        str << "can't infer the type of instance variable '#{node.name}' of #{owner.devirtualize}"
         if similar_name
           str << colorize(" (did you mean #{similar_name}?)").yellow.bold.to_s
         end
